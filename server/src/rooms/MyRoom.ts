@@ -3,7 +3,9 @@ import { MyRoomState, Player } from "./schema/MyRoomState";
 import { GAME_HEIGHT, GAME_WIDTH } from "../../../globals"
 
 // list of avatars
-const avatars = ['glady', 'dino', 'bean', 'bag', 'btfly', 'bobo', 'ghostiny', 'ghosty', 'mark'];
+// const avatars = ['glady', 'dino', 'bean', 'bag', 'btfly', 'bobo', 'ghostiny', 'ghosty', 'mark'];
+const avatars = ['red', 'blue', 'blonde'];
+const maps = ['Nexon_Prime_sector1']
 
 export class MyRoom extends Room {
   maxClients = 10;
@@ -18,8 +20,8 @@ export class MyRoom extends Room {
       const player = this.state.players.get(client.sessionId);
       if (!player) return;
 
-      player.x += message.dx * 3;
-      player.y += message.dy * 3;
+      player.x += message.dx * 1.0;
+      player.y += message.dy * 1.0;
     });
 
     this.onMessage("aim", (client, message) => {
