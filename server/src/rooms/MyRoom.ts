@@ -92,6 +92,7 @@ export class MyRoom extends Room {
 
       const {dirX, dirY} = data;
       const bullet = new Bullet(client.sessionId, player.x, player.y, dirX, dirY)
+      this.state.bullets.set(Math.random().toString(), bullet)
     });
   }
 

@@ -2,7 +2,6 @@ import { k } from "../App";
 import { getStateCallbacks, Room } from "colyseus.js";
 import type { MyRoomState, Player } from "../../../server/src/rooms/schema/MyRoomState";
 import { GameObj } from "kaplay";
-import { map, Vec2, vec2 } from "kaplay/dist/declaration/math";
 
 /**
  * Stores all active players keyed by their session ID.
