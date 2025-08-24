@@ -38,7 +38,7 @@ async function joinRoom() {
 
 async function main() {
   const btn1 = addButton("Start", k.vec2(200, 100), joinRoom);
-  useCrosshair(k, "white");
+  // useCrosshair(k, "white");
 }
 
 main();

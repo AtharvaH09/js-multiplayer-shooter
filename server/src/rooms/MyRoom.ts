@@ -3,6 +3,8 @@ import { MyRoomState, Player, Bullet } from "./schema/MyRoomState";
 import { GAME_HEIGHT, GAME_WIDTH } from "../../../globals"
 import fs from "fs";
 import path from "path";
+import { v4 as uuidv4 } from 'uuid';
+
 import getCollisionRects from "./logic/Collision";
 import extractSpawnPoints, { getFreeSpawnIndex, releaseSpawnIndex } from "./logic/Spawn";
 
@@ -42,6 +44,7 @@ export class MyRoom extends Room {
   private mapData: any;
   private colliders: Collider[] = [];
   private spawns: SpawnPoint[] = [];
+  private lastShotTimes: Map<string, number> = new Map();
 
 
   teamPlayersCount(team: "blue" | "red" = "blue") {
@@ -66,7 +69,6 @@ export class MyRoom extends Room {
       const newX = player.x + message.dx * speed;
       const newY = player.y + message.dy * speed;
 
-      // // simple AABB check
       const isColliding = this.colliders.some(c => (
         newX < c.x + c.w &&
         newX + player_width > c.x &&
@@ -86,13 +88,42 @@ export class MyRoom extends Room {
     });
 
     // Shooting mechanism
-    this.onMessage("shoot", (client, data) => {
-      const player = this.state.players.get(client.sessionId);
-      if (!player) return;
+    this.onMessage("shoot-ray", (client, data) => {
+      const shooter = this.state.players.get(client.sessionId);
+      if (!shooter) return;
 
-      const {dirX, dirY} = data;
-      const bullet = new Bullet(client.sessionId, player.x, player.y, dirX, dirY)
-      this.state.bullets.set(Math.random().toString(), bullet)
+      const { origin, dir } = data;
+      const range = 1024; // max distance for hits
+      let closestPlayer: Player | null = null;
+      let closestDist = range;
+
+      this.broadcast("fired", { playerId: client.sessionId }, { except: client });  // Muzzle flash 
+
+      for (const [id, player] of this.state.players) {
+        if (id === client.sessionId) continue; // skip self
+        const toTarget = { x: player.x - origin.x, y: player.y - origin.y };
+
+        // Project vector length along dir (dot product)
+        const projLength = toTarget.x * dir.x + toTarget.y * dir.y;
+        if (projLength < 0 || projLength > range) continue; // behind or too far
+
+        // Distance from ray
+        const perpDist = Math.abs(toTarget.x * dir.y - toTarget.y * dir.x);
+        if (perpDist < 20) { // hit threshold
+          const distance = Math.sqrt(toTarget.x ** 2 + toTarget.y ** 2);
+          if (distance < closestDist) {
+            closestDist = distance;
+            closestPlayer = player;
+          }
+        }
+      }
+
+      if (closestPlayer) {
+        closestPlayer.health -= 20;
+        if (closestPlayer.health <= 0) {
+          console.log(`${closestPlayer.sessionId} is dead`);
+        }
+      }
     });
   }
 

@@ -1,6 +1,6 @@
 import { k } from "../App";
 import { getStateCallbacks, Room } from "colyseus.js";
-import type { MyRoomState, Player } from "../../../server/src/rooms/schema/MyRoomState";
+import type { MyRoomState, Player, Bullet } from "../../../server/src/rooms/schema/MyRoomState";
 import { GameObj } from "kaplay";
 
 /**
@@ -14,11 +14,13 @@ const allPlayers = new Map<string, { playerSprite: GameObj; gunSprite: GameObj }
  * Each entry keeps track of the current angle and the target angle.
  */
 const opponentAimData = new Map<string, { currentAngle: number; targetAngle: number }>();
+const opponentMuzzleFlash = new Map<string, { hasFired: boolean }>();
 
 /**
  * Reference to the local player's sprite for camera tracking.
  */
 let localPlayerSprite: GameObj | null = null;
+
 
 /**
  * Scene: Lobby
@@ -66,6 +68,22 @@ export function createLobbyScene() {
       }
     });
 
+    /** Handle gun muzzle flashes */
+    room.onMessage("fired", ({ playerId }) => {
+      if (playerId === room.sessionId) return;
+      const player = allPlayers.get(playerId);
+      if (!player) return;
+
+      const data = opponentMuzzleFlash.get(playerId);
+      if (!data) {
+        opponentMuzzleFlash.set(playerId, {
+          hasFired: false,
+        });
+      } else {
+        data.hasFired = true;
+      }
+    });
+
     /** Handle player leaving */
     $(room.state).players.onRemove((_, sessionId) => {
       k.destroy(spritesBySessionId[sessionId]);
@@ -85,7 +103,35 @@ export function createLobbyScene() {
       if (!self) return;
       room.send("move", { dx, dy });
     }
+
+    /** Handle bullets */
+    // $(room.state).bullets.onAdd((bullet, id) => {
+    //   const obj = k.add([
+    //     k.rect(4, 4, { radius: 2 }),
+    //     k.color(255, 255, 0),
+    //     k.pos(bullet.x, bullet.y),
+    //     k.area(),
+    //     "bullet"
+    //   ]);
+
+    //   bulletsMap.set(id, obj);
+
+    //   // Per-frame sync with server state
+    //   obj.onUpdate(() => {
+    //     obj.pos.x = bullet.x;
+    //     obj.pos.y = bullet.y;
+    //   });
+    // });
+
+    // $(room.state).bullets.onRemove((_, id) => {
+    //   const obj = bulletsMap.get(id);
+    //   if (obj) {
+    //     k.destroy(obj);
+    //     bulletsMap.delete(id);
+    //   }
+    // });
   });
+
 }
 
 /**
@@ -157,6 +203,24 @@ function setupPlayerInterpolation(playerSprite: GameObj, gunSprite: GameObj, pla
       opponent.gunSprite.flipY = Math.abs(data.currentAngle) > 90;
     }
 
+    // Muzzle Flash Synchronization
+    for (const [playerId, data] of opponentMuzzleFlash) {
+      const opponent = allPlayers.get(playerId);
+      if (!opponent) continue;
+
+      if (data.hasFired) {
+        const flash = opponent.gunSprite.add([
+          k.pos(opponent.gunSprite.width * 1.5, Math.abs(opponent.gunSprite.angle) > 90 ? 7 : -7),
+          k.circle(10),
+          k.color(255, 255, 0),
+          k.opacity(0.5),
+        ]);
+        flash.fadeOut(0.2).then(() => k.destroy(flash));
+        data.hasFired = false;
+      }
+
+    }
+
     // Position interpolation
     playerSprite.pos.x = k.lerp(playerSprite.pos.x, player.x, 12 * k.dt());
     playerSprite.pos.y = k.lerp(playerSprite.pos.y, player.y, 12 * k.dt());
@@ -211,6 +275,7 @@ function setupCameraFollow(sprite: GameObj) {
 function setupLocalPlayerAiming(sessionId: string, room: Room<MyRoomState>) {
   localPlayerSprite = allPlayers.get(sessionId)?.playerSprite ?? null;
   let lastAimSent = 0;
+  let lastShotTime = 0;
 
   k.onMouseMove(() => {
     const self = allPlayers.get(sessionId);
@@ -226,5 +291,29 @@ function setupLocalPlayerAiming(sessionId: string, room: Room<MyRoomState>) {
       lastAimSent = now;
       room.send("aim", { playerId: sessionId, target: worldMousePos });
     }
+  });
+
+  k.onMousePress(() => {
+    // Visual muzzle flash
+    const self = allPlayers.get(room.sessionId);
+    if (!self) return;
+
+    const flash = self.gunSprite.add([
+      k.pos(self.gunSprite.width * 1.5, Math.abs(self.gunSprite.angle) > 90 ? 7 : -7),
+      k.circle(10),
+      k.color(255, 255, 0),
+      k.opacity(0.5),
+    ]);
+    flash.fadeOut(0.2).then(() => k.destroy(flash));
+
+    // Ray direction
+    const worldMousePos = k.toWorld(k.mousePos());
+    const dir = worldMousePos.sub(self.playerSprite.pos).unit();
+
+    // Send to server
+    room.send("shoot-ray", {
+      origin: { x: self.playerSprite.pos.x, y: self.playerSprite.pos.y },
+      dir: { x: dir.x, y: dir.y }
+    });
   });
 }
