@@ -1,18 +1,17 @@
 import { Room, Client } from "@colyseus/core";
-import { MyRoomState, Player, Bullet } from "./schema/MyRoomState";
+import { MyRoomState, Player } from "./schema/MyRoomState";
 import { GAME_HEIGHT, GAME_WIDTH } from "../../../globals"
 import fs from "fs";
 import path from "path";
-import { v4 as uuidv4 } from 'uuid';
 
 import getCollisionRects from "./logic/Collision";
 import extractSpawnPoints, { getFreeSpawnIndex, releaseSpawnIndex } from "./logic/Spawn";
 
-// list of avatars
+/**  list of avatars */
 const avatars = ['red', 'blue', 'blonde'];
-// list of maps
+/** list of maps */
 const maps = ['NP_test'];
-// list of guns
+/** list of guns  */
 const guns = ['pistol_test'];
 
 const player_width = 5;
@@ -44,8 +43,6 @@ export class MyRoom extends Room {
   private mapData: any;
   private colliders: Collider[] = [];
   private spawns: SpawnPoint[] = [];
-  private lastShotTimes: Map<string, number> = new Map();
-
 
   teamPlayersCount(team: "blue" | "red" = "blue") {
     return [...this.state.players.values()].filter(p => p.team === team).length;
@@ -87,7 +84,7 @@ export class MyRoom extends Room {
       this.broadcast("aim-taken", message, { except: client })
     });
 
-    // Shooting mechanism
+    /** Shooting mechanism */
     this.onMessage("shoot-ray", (client, data) => {
       const shooter = this.state.players.get(client.sessionId);
       if (!shooter) return;
@@ -97,10 +94,14 @@ export class MyRoom extends Room {
       let closestPlayer: Player | null = null;
       let closestDist = range;
 
+      let hitPoint = { x: origin.x + dir.x * range, y: origin.y + dir.y * range };
+      let hitType: "none" | "player" | "wall" = "none";
+
       this.broadcast("fired", { playerId: client.sessionId }, { except: client });  // Muzzle flash 
 
+      // Check players
       for (const [id, player] of this.state.players) {
-        if (id === client.sessionId) continue; // skip self
+        if (id === client.sessionId) continue;  // skip self
         const toTarget = { x: player.x - origin.x, y: player.y - origin.y };
 
         // Project vector length along dir (dot product)
@@ -114,16 +115,42 @@ export class MyRoom extends Room {
           if (distance < closestDist) {
             closestDist = distance;
             closestPlayer = player;
+            hitPoint = { x: origin.x + dir.x * projLength, y: origin.y + dir.y * projLength };
+            hitType = "player";
           }
         }
       }
 
+      // Check colliders (Walls)
+      for (const c of this.colliders) {
+        const tMinX = (c.x - origin.x) / dir.x;
+        const tMaxX = ((c.x + c.w) - origin.x) / dir.x;
+        const tMinY = (c.y - origin.y) / dir.y;
+        const tMaxY = ((c.y + c.h) - origin.y) / dir.y;
+
+        const tEnter = Math.max(Math.min(tMinX, tMaxX), Math.min(tMinY, tMaxY));
+        if (tEnter > 0 && tEnter < closestDist) {
+          closestDist = tEnter;
+          hitPoint = { x: origin.x + dir.x * tEnter, y: origin.y + dir.y * tEnter }
+          hitType = "wall";
+        }
+      }
+
+      // Apply damage if the player was hit
       if (closestPlayer) {
         closestPlayer.health -= 20;
         if (closestPlayer.health <= 0) {
           console.log(`${closestPlayer.sessionId} is dead`);
         }
       }
+
+      // Broadcast hit position
+      this.broadcast("hit-effect", {
+        playerId: client.sessionId,
+        point: hitPoint,
+        type: hitType,
+        dir: { x: dir.x, y: dir.y }
+      });
     });
   }
 

@@ -1,6 +1,6 @@
 import { k } from "../App";
 import { getStateCallbacks, Room } from "colyseus.js";
-import type { MyRoomState, Player, Bullet } from "../../../server/src/rooms/schema/MyRoomState";
+import type { MyRoomState, Player } from "../../../server/src/rooms/schema/MyRoomState";
 import { GameObj } from "kaplay";
 
 /**
@@ -84,6 +84,40 @@ export function createLobbyScene() {
       }
     });
 
+    /** Handle Hitmarker */
+    k.loadSprite("hexagon", "assets/vfx/particle_hexagon_filled.png");
+    k.loadSprite("star", "assets/vfx/particle_star_filled.png");
+    room.onMessage("hit-effect", ({ point, type, dir }) => {
+      // Different colors for wall vs player
+      const colorValue = type === "player" ? k.rgb(255, 0, 0) : k.rgb(255, 255, 255);
+      const shotAngle = k.vec2(dir.x, dir.y).scale(-1).angle();  // flip by scaling inversely  
+
+      const splatter = k.add([
+        k.pos(point.x, point.y),
+        k.particles({
+          max: 20,
+          speed: [200, 250],
+          lifeTime: [0.2, 0.75],
+          colors: [colorValue],
+          opacities: [1.0, 0.0],
+          angle: [0, 360],
+          texture: k.getSprite("hexagon").data.tex,
+          quads: [k.getSprite("hexagon").data.frames[0]],
+        }, {
+          lifetime: 0.75,
+          rate: 0,
+          direction: shotAngle,
+          spread: 45,
+        }),
+      ]);
+
+      splatter.emit(10);
+      splatter.onEnd(() => {
+        k.destroy(splatter);
+      });
+    });
+
+
     /** Handle player leaving */
     $(room.state).players.onRemove((_, sessionId) => {
       k.destroy(spritesBySessionId[sessionId]);
@@ -103,33 +137,6 @@ export function createLobbyScene() {
       if (!self) return;
       room.send("move", { dx, dy });
     }
-
-    /** Handle bullets */
-    // $(room.state).bullets.onAdd((bullet, id) => {
-    //   const obj = k.add([
-    //     k.rect(4, 4, { radius: 2 }),
-    //     k.color(255, 255, 0),
-    //     k.pos(bullet.x, bullet.y),
-    //     k.area(),
-    //     "bullet"
-    //   ]);
-
-    //   bulletsMap.set(id, obj);
-
-    //   // Per-frame sync with server state
-    //   obj.onUpdate(() => {
-    //     obj.pos.x = bullet.x;
-    //     obj.pos.y = bullet.y;
-    //   });
-    // });
-
-    // $(room.state).bullets.onRemove((_, id) => {
-    //   const obj = bulletsMap.get(id);
-    //   if (obj) {
-    //     k.destroy(obj);
-    //     bulletsMap.delete(id);
-    //   }
-    // });
   });
 
 }
