@@ -7,7 +7,12 @@ import { GameObj } from "kaplay";
  * Stores all active players keyed by their session ID.
  * Each entry holds both the player sprite and the gun sprite.
  */
-const allPlayers = new Map<string, { playerSprite: GameObj; gunSprite: GameObj }>();
+const allPlayers = new Map<string, {
+  playerSprite: GameObj,
+  gunSprite: GameObj,
+  isDead?: boolean,
+  isInvincible?: boolean,
+}>();
 
 /**
  * Stores opponent aiming data for smooth interpolation.
@@ -85,11 +90,11 @@ export function createLobbyScene() {
     });
 
     /** Handle Hitmarker */
-    k.loadSprite("hexagon", "assets/vfx/particle_hexagon_filled.png");
+    k.loadSprite("hexagon", "assets/vfx/particle_hexagon_filledB.png");
     k.loadSprite("star", "assets/vfx/particle_star_filled.png");
     room.onMessage("hit-effect", ({ point, type, dir }) => {
       // Different colors for wall vs player
-      const colorValue = type === "player" ? k.rgb(255, 0, 0) : k.rgb(255, 255, 255);
+      const colorValue = type === "player" ? k.rgb(255, 0, 0) : k.rgb(140, 147, 176);
       const shotAngle = k.vec2(dir.x, dir.y).scale(-1).angle();  // flip by scaling inversely  
 
       const splatter = k.add([
@@ -117,6 +122,96 @@ export function createLobbyScene() {
       });
     });
 
+    /** Handle Player Death */
+    room.onMessage("player-dead", ({ playerId }) => {
+      const player = allPlayers.get(playerId);
+      if (!player) return;
+
+      const ps = player.playerSprite;
+      const gs = player.gunSprite ?? (ps as any).__gunSprite;
+      const hb = (ps as any).__healthBar;
+
+      // Create dissipate effect
+      const rect = {
+        pos: k.vec2(-16, -16), // offset to center particles
+        width: 32,
+        height: 32
+      };
+
+      rect.pos = rect.pos.sub(rect.width / 2, rect.height / 2);
+
+      const dissipate = k.add([
+        k.pos(ps.pos),
+        k.particles({
+          max: 20,
+          speed: [50, 100],
+          angle: [0, 360],
+          angularVelocity: [45, 90],
+          lifeTime: [1.0, 1.5],
+          colors: [k.rgb(128, 128, 255), k.rgb(255, 255, 255)],
+          opacities: [0.1, 1.0, 0.0],
+          texture: k.getSprite("star").data.tex,
+          quads: [k.getSprite("star").data.frames[0]],
+        }, {
+          lifetime: 1.5,
+          rate: 0,
+          direction: -90,
+          spread: 0,
+        }),
+      ]);
+
+      dissipate.emit(20);
+      dissipate.onEnd(() => {
+        k.destroy(dissipate);
+      });
+
+      // hide visuals (don't destroy — keep object for respawn)
+      ps.opacity = 0;
+      if (gs) gs.opacity = 0;
+      if (hb) hb.opacity = 0;
+
+      // stop animations and mark as dead
+      try { ps.play && ps.play("idle-down"); } catch (e) { }
+      player.isDead = true;
+    });
+
+    /** Handle player respawn */
+    room.onMessage("player-respawned", ({ playerId, x, y, isInvincible }) => {
+      const playerState = room.state.players.get(playerId); // authoritative schema
+      let player = allPlayers.get(playerId);
+
+      if (!player) {
+        if (playerState) {
+          const { playerSprite, gunSprite } = createPlayer(playerState);
+          player = { playerSprite, gunSprite };
+          allPlayers.set(playerId, player);
+        }
+      } else {
+        player.playerSprite.pos.x = x;
+        player.playerSprite.pos.y = y;
+        player.playerSprite.opacity = 1;
+
+        const ps = player.playerSprite;
+        const gs = player.gunSprite ?? (ps as any).__gunSprite;
+        const hb = (ps as any).__healthBar;
+
+        if (gs) gs.opacity = 1;
+        if (hb) hb.opacity = 1;
+        player.isDead = false;
+      }
+
+      if (isInvincible) {
+        const shield = player.playerSprite.add([
+          k.circle(28),
+          k.color(0, 255, 255),
+          k.opacity(0.35),
+          k.anchor("center"),
+          k.z(22),
+        ]);
+
+        k.wait(3, () => { if (shield) k.destroy(shield); });
+      }
+    });
 
     /** Handle player leaving */
     $(room.state).players.onRemove((_, sessionId) => {
@@ -126,16 +221,16 @@ export function createLobbyScene() {
     });
 
     /** Movement input bindings */
-    k.onKeyDown("w", () => sendMove(0, -1));
-    k.onKeyDown("s", () => sendMove(0, 1));
-    k.onKeyDown("a", () => sendMove(-1, 0));
-    k.onKeyDown("d", () => sendMove(1, 0));
+    k.onKeyDown("w", () => sendMove("up"));
+    k.onKeyDown("s", () => sendMove("down"));
+    k.onKeyDown("a", () => sendMove("left"));
+    k.onKeyDown("d", () => sendMove("right"));
 
     /** Sends a move command to the server */
-    function sendMove(dx: number, dy: number) {
+    function sendMove(dir: string) {
       const self = room.state.players.get(room.sessionId);
       if (!self) return;
-      room.send("move", { dx, dy });
+      room.send("move", dir);
     }
   });
 
@@ -173,17 +268,27 @@ function createPlayer(player: Player) {
     k.sprite("all_avatars", { anim: "idle-down" }),
     k.pos(player.x, player.y),
     k.anchor("center"),
-    // k.area(),
     k.scale(0.8),
     k.z(10),
   ]);
 
   const gunSprite = playerSprite.add([
     k.sprite("gun"),
-    k.anchor(k.vec2(-1.8, 0)),
-    k.scale(0.5),
+    k.anchor(k.vec2(-2.5, 0)),
+    k.scale(0.25),
     k.rotate(0),
   ]);
+  (playerSprite as any).__gunSprite = gunSprite;
+
+  const healthBar = playerSprite.add([
+    k.pos(k.vec2(0, -15)),
+    k.rect(20, 2),
+    k.color(0, 255, 0), // green
+    k.anchor("center"),
+    k.z(21),
+  ]);
+  (playerSprite as any).__healthBar = healthBar;
+
 
   setupPlayerInterpolation(playerSprite, gunSprite, player);
   setupCameraFollow(playerSprite);
@@ -258,6 +363,23 @@ function setupPlayerInterpolation(playerSprite: GameObj, gunSprite: GameObj, pla
       playerSprite.play(currentAnim);
     }
   });
+
+  // Update healthbar every frame (inside interpolation loop or separate)
+  k.onUpdate(() => {
+    // ensure the player still exists in state
+    const current = player;
+    if (!current) return;
+    const ratio = Math.max(0, Math.min(1, (current.health || 0) / 100));
+    // guard for the objects (they exist as children)
+    const hb = (playerSprite as any).__healthBar;
+    if (hb) hb.width = 40 * ratio;
+    // color change
+    if (hb) {
+      if (ratio < 0.3) hb.color = k.rgb(255, 0, 0);
+      else if (ratio < 0.6) hb.color = k.rgb(255, 165, 0);
+      else hb.color = k.rgb(0, 255, 0);
+    }
+  });
 }
 
 /**
@@ -306,7 +428,7 @@ function setupLocalPlayerAiming(sessionId: string, room: Room<MyRoomState>) {
     if (!self) return;
 
     const flash = self.gunSprite.add([
-      k.pos(self.gunSprite.width * 1.5, Math.abs(self.gunSprite.angle) > 90 ? 7 : -7),
+      k.pos(self.gunSprite.width * 2, Math.abs(self.gunSprite.angle) > 90 ? 7 : -7),
       k.circle(10),
       k.color(255, 255, 0),
       k.opacity(0.5),

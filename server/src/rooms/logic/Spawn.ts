@@ -1,9 +1,18 @@
+import { MyRoom } from "../MyRoom"; // adjust the path based on your structure
+
 export type SpawnPoint = {
   x: number;
   y: number;
   team: "red" | "blue";
   occupied?: boolean;
 };
+
+export interface Player {
+  x: number;
+  y: number;
+  team: "blue" | "red";
+  isAlive: boolean;
+}
 
 export default function extractSpawnPoints(mapData: any): SpawnPoint[] {
   const spawns: SpawnPoint[] = [];

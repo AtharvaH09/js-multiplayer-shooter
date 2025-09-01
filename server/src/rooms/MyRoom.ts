@@ -58,13 +58,20 @@ export class MyRoom extends Room {
     })
 
     // Player Collision
-    this.onMessage("move", (client, message) => {
+    this.onMessage("move", (client, dir) => {
       const player = this.state.players.get(client.sessionId);
+      let dx, dy;
       if (!player) return;
 
+      switch (dir) {
+        case "up": dx = 0; dy = -1; break;
+        case "down": dx = 0; dy = 1; break;
+        case "left": dx = -1; dy = 0; break;
+        case "right": dx = 1; dy = 0; break;
+      }
       const speed = 0.8;
-      const newX = player.x + message.dx * speed;
-      const newY = player.y + message.dy * speed;
+      const newX = player.x + dx * speed;
+      const newY = player.y + dy * speed;
 
       const isColliding = this.colliders.some(c => (
         newX < c.x + c.w &&
@@ -137,10 +144,35 @@ export class MyRoom extends Room {
       }
 
       // Apply damage if the player was hit
-      if (closestPlayer) {
+      if (closestPlayer && closestPlayer.isAlive && !closestPlayer.isInvincible) {
         closestPlayer.health -= 20;
-        if (closestPlayer.health <= 0) {
-          console.log(`${closestPlayer.sessionId} is dead`);
+        if (closestPlayer.health <= 0 && closestPlayer.isAlive) {
+          closestPlayer.isAlive = false;
+          this.broadcast("player-dead", { playerId: closestPlayer.sessionId });
+
+          // Respawn after 3 seconds
+          this.clock.setTimeout(() => {
+            const spawnIdx = this.getSafeSpawnIndex(closestPlayer.team);
+            const spawn = this.spawns[spawnIdx];
+
+            closestPlayer.x = spawn.x;
+            closestPlayer.y = spawn.y;
+            closestPlayer.health = 100;
+            closestPlayer.isAlive = true;
+            closestPlayer.isInvincible = true;
+
+            this.broadcast("player-respawned", {
+              playerId: closestPlayer.sessionId,
+              x: spawn.x,
+              y: spawn.y,
+              isInvincible: true,  // <-- include explicitly
+            });
+
+            // Remove invincibility after 3 seconds
+            this.clock.setTimeout(() => {
+              closestPlayer.isInvincible = false;
+            }, 3000);
+          }, 3000);
         }
       }
 
@@ -196,6 +228,38 @@ export class MyRoom extends Room {
 
   onDispose() {
     console.log("room", this.roomId, "disposing...");
+  }
+
+  getSafeSpawnIndex(team: "blue" | "red"): number {
+    // Find all spawns for the team
+    const teamSpawns = this.spawns.filter(s => s.team === team);
+
+    // Pick the spawn farthest from any enemy
+    let bestSpawnIdx = 0;
+    let maxDist = -Infinity;
+
+    for (let i = 0; i < teamSpawns.length; i++) {
+      const spawn = teamSpawns[i];
+      let minEnemyDist = Infinity;
+
+      for (const player of this.state.players.values()) {
+        if (player.team !== team && player.isAlive) {
+          const dx = player.x - spawn.x;
+          const dy = player.y - spawn.y;
+          const dist = Math.sqrt(dx * dx + dy * dy);
+          if (dist < minEnemyDist) {
+            minEnemyDist = dist;
+          }
+        }
+      }
+
+      if (minEnemyDist > maxDist) {
+        maxDist = minEnemyDist;
+        bestSpawnIdx = i;
+      }
+    }
+
+    return bestSpawnIdx;
   }
 
 }
