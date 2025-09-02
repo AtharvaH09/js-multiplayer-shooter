@@ -1,20 +1,14 @@
-import { MyRoom } from "../MyRoom"; // adjust the path based on your structure
-
-export type SpawnPoint = {
-  x: number;
-  y: number;
-  team: "red" | "blue";
-  occupied?: boolean;
-};
-
-export interface Player {
+export interface SpawnPoint {
   x: number;
   y: number;
   team: "blue" | "red";
-  isAlive: boolean;
+  occupied?: boolean;
 }
 
-export default function extractSpawnPoints(mapData: any): SpawnPoint[] {
+/**
+ * Extracts spawn points from the Tiled map data.
+ */
+export function extractSpawnPoints(mapData: any): SpawnPoint[] {
   const spawns: SpawnPoint[] = [];
   const positionsLayer = mapData.layers.find((l: any) => l.name === "Positions");
   if (!positionsLayer) return spawns;
@@ -31,7 +25,10 @@ export default function extractSpawnPoints(mapData: any): SpawnPoint[] {
   return spawns;
 }
 
-/** Return index of a free spawn for team, or -1 if none. Marks it occupied. */
+/**
+ * Returns a random free spawn for a given team.
+ * Marks it as occupied. Returns -1 if none available.
+ */
 export function getFreeSpawnIndex(spawns: SpawnPoint[], team: "red" | "blue"): number {
   const candidates = spawns
     .map((s, i) => ({ s, i }))
@@ -44,7 +41,44 @@ export function getFreeSpawnIndex(spawns: SpawnPoint[], team: "red" | "blue"): n
   return i;
 }
 
-/** Release a spawn by index. */
+/**
+ * Releases a spawn index (makes it available again).
+ */
 export function releaseSpawnIndex(spawns: SpawnPoint[], index: number): void {
   if (index >= 0 && index < spawns.length) spawns[index].occupied = false;
+}
+
+/**
+ * Returns the safest spawn for a team (farthest from enemies).
+ */
+export function getSafeSpawnIndex(spawns: SpawnPoint[], team: "blue" | "red", players: Iterable<any>): number {
+  const teamSpawns = spawns
+    .map((s, i) => ({ s, i }))
+    .filter(({ s }) => s.team === team);
+
+  let bestSpawnIdx = teamSpawns[0]?.i ?? 0;
+  let maxDist = -Infinity;
+
+  for (const { s, i } of teamSpawns) {
+    let minEnemyDist = Infinity;
+
+    for (const player of players) {
+      if (player.team !== team && player.isAlive) {
+        const dx = player.x - s.x;
+        const dy = player.y - s.y;
+        const dist = Math.sqrt(dx * dx + dy * dy);
+        if (dist < minEnemyDist) {
+          minEnemyDist = dist;
+        }
+      }
+    }
+
+    if (minEnemyDist > maxDist) {
+      maxDist = minEnemyDist;
+      bestSpawnIdx = i;
+    }
+  }
+
+  spawns[bestSpawnIdx].occupied = true;
+  return bestSpawnIdx;
 }

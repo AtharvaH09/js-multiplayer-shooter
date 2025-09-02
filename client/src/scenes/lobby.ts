@@ -26,6 +26,11 @@ const opponentMuzzleFlash = new Map<string, { hasFired: boolean }>();
  */
 let localPlayerSprite: GameObj | null = null;
 
+/**
+ * Local State for Gun related UI elements
+ */
+let ammoText: GameObj;
+let reloadSpinner: GameObj | null = null;
 
 /**
  * Scene: Lobby
@@ -51,7 +56,7 @@ export function createLobbyScene() {
       allPlayers.set(sessionId, { playerSprite, gunSprite });
 
       if (sessionId === room.sessionId) {
-        setupLocalPlayerAiming(sessionId, room);
+        setupLocalPlayerControls(sessionId, room, $);
       }
     });
 
@@ -90,8 +95,6 @@ export function createLobbyScene() {
     });
 
     /** Handle Hitmarker */
-    k.loadSprite("hexagon", "assets/vfx/particle_hexagon_filledB.png");
-    k.loadSprite("star", "assets/vfx/particle_star_filled.png");
     room.onMessage("hit-effect", ({ point, type, dir }) => {
       // Different colors for wall vs player
       const colorValue = type === "player" ? k.rgb(255, 0, 0) : k.rgb(140, 147, 176);
@@ -213,6 +216,41 @@ export function createLobbyScene() {
       }
     });
 
+    /** Update ammo HUD on schema change */
+    $(room.state).players.onChange((player, key) => {
+      if (key === room.sessionId) {
+        const gun = (player as any).gun;
+        if (gun && ammoText) {
+          ammoText.text = `Ammo: ${gun.ammo} / ${gun.reserveAmmo}`;
+        }
+      }
+    });
+
+
+    // Reload animation
+    room.onMessage("player-reload-start", ({ playerId }) => {
+      if (playerId === room.sessionId && localPlayerSprite) {
+        // Show spinner on gun
+        reloadSpinner = localPlayerSprite.gunSprite.add([
+          k.sprite("reloadSpinner"),
+          k.pos(20, -20),
+          k.anchor("center"),
+          k.z(50),
+        ]);
+        reloadSpinner.play("spin");
+      }
+    });
+
+    room.onMessage("player-reload-end", ({ playerId, ammo, reserveAmmo }) => {
+      if (playerId === room.sessionId) {
+        if (reloadSpinner) {
+          reloadSpinner.destroy();
+          reloadSpinner = null;
+        }
+        ammoText.text = `Ammo: ${ammo} / ${reserveAmmo}`;
+      }
+    });
+
     /** Handle player leaving */
     $(room.state).players.onRemove((_, sessionId) => {
       k.destroy(spritesBySessionId[sessionId]);
@@ -241,7 +279,6 @@ export function createLobbyScene() {
  * Also sets up interpolation, animation switching, and camera tracking.
  */
 function createPlayer(player: Player) {
-  k.loadSprite("gun", `assets/gun.png`);
 
   const avatarOffsets: Record<string, number> = {
     red: 0,
@@ -401,10 +438,26 @@ function setupCameraFollow(sprite: GameObj) {
  * Local player aiming setup.
  * Sends aiming data periodically to reduce bandwidth usage.
  */
-function setupLocalPlayerAiming(sessionId: string, room: Room<MyRoomState>) {
+function setupLocalPlayerControls(sessionId: string, room: Room<MyRoomState>, $: ReturnType<typeof getStateCallbacks>) {
   localPlayerSprite = allPlayers.get(sessionId)?.playerSprite ?? null;
   let lastAimSent = 0;
-  let lastShotTime = 0;
+
+  ammoText = k.add([
+    k.text("", { size: 16 }),
+    k.pos(16, k.height() - 32),
+    k.fixed(),
+    k.color(255, 255, 255),
+    k.z(100),
+  ]);
+
+  const playerState = room.state.players.get(room.sessionId);
+  if (playerState) {
+    ammoText.text = `Ammo: ${playerState.gun.ammo} / ${playerState.gun.reserveAmmo}`;
+
+    $(playerState.gun).onChange(() => {
+      ammoText.text = `Ammo: ${playerState.gun.ammo} / ${playerState.gun.reserveAmmo}`;
+    });
+  }
 
   k.onMouseMove(() => {
     const self = allPlayers.get(sessionId);
@@ -422,9 +475,19 @@ function setupLocalPlayerAiming(sessionId: string, room: Room<MyRoomState>) {
     }
   });
 
+  // Shooting
   k.onMousePress(() => {
-    // Visual muzzle flash
-    const self = allPlayers.get(room.sessionId);
+    const playerState = room.state.players.get(sessionId);
+    if (!playerState) return;
+
+    const gun = (playerState as any).gun;
+    if (!gun || gun.ammo <= 0) {
+      console.log("Out of ammo! Reload!");
+      return; // do not send shoot
+    }
+
+    // Show muzzle flash visually
+    const self = allPlayers.get(sessionId);
     if (!self) return;
 
     const flash = self.gunSprite.add([
@@ -435,14 +498,16 @@ function setupLocalPlayerAiming(sessionId: string, room: Room<MyRoomState>) {
     ]);
     flash.fadeOut(0.2).then(() => k.destroy(flash));
 
-    // Ray direction
+    // Send shoot request to server
     const worldMousePos = k.toWorld(k.mousePos());
     const dir = worldMousePos.sub(self.playerSprite.pos).unit();
 
-    // Send to server
-    room.send("shoot-ray", {
-      origin: { x: self.playerSprite.pos.x, y: self.playerSprite.pos.y },
-      dir: { x: dir.x, y: dir.y }
-    });
+    room.send("shoot", { dir: { x: dir.x, y: dir.y } });
+  });
+
+
+  // Reload key (R)
+  k.onKeyPress("r", () => {
+    room.send("reload");
   });
 }

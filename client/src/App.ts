@@ -6,6 +6,7 @@ import { createLobbyScene } from './scenes/lobby';
 import type { MyRoomState } from '../../server/src/rooms/schema/MyRoomState';
 import addButton from './UI/button';
 import { useCrosshair } from './UI/mouse_pointer';
+import { loadAssets } from './utils/loadAssets';
 
 // Initialize kaplay
 export const k = kaplay({
@@ -15,6 +16,9 @@ export const k = kaplay({
   pixelDensity: Math.min(window.devicePixelRatio, 2), // crispier on phones
   // background: "20252e",
 });
+
+// Preload all assets
+loadAssets();
 
 // Create all scenes
 createLobbyScene();

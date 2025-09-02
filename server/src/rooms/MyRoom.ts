@@ -1,11 +1,13 @@
 import { Room, Client } from "@colyseus/core";
-import { MyRoomState, Player } from "./schema/MyRoomState";
+import { MyRoomState, Player, Gun } from "./schema/MyRoomState";
 import { GAME_HEIGHT, GAME_WIDTH } from "../../../globals"
 import fs from "fs";
 import path from "path";
 
 import getCollisionRects from "./logic/Collision";
-import extractSpawnPoints, { getFreeSpawnIndex, releaseSpawnIndex } from "./logic/Spawn";
+import { extractSpawnPoints, getFreeSpawnIndex, releaseSpawnIndex, getSafeSpawnIndex } from "./logic/Spawn";
+import { handleShoot } from "./logic/Shooting";
+import { handleReload } from "./logic/Reloading";
 
 /**  list of avatars */
 const avatars = ['red', 'blue', 'blonde'];
@@ -40,9 +42,10 @@ function getMapData(mapName: string) {
 export class MyRoom extends Room {
   maxClients = 10;
   state = new MyRoomState();
-  private mapData: any;
-  private colliders: Collider[] = [];
-  private spawns: SpawnPoint[] = [];
+  mapData: any;
+  colliders: Collider[] = [];
+  spawns: SpawnPoint[] = [];
+  lastShotTimes: Map<string, number> = new Map();
 
   teamPlayersCount(team: "blue" | "red" = "blue") {
     return [...this.state.players.values()].filter(p => p.team === team).length;
@@ -91,99 +94,9 @@ export class MyRoom extends Room {
       this.broadcast("aim-taken", message, { except: client })
     });
 
-    /** Shooting mechanism */
-    this.onMessage("shoot-ray", (client, data) => {
-      const shooter = this.state.players.get(client.sessionId);
-      if (!shooter) return;
+    this.onMessage("shoot", (client, data) => handleShoot(this, client, data));
+    this.onMessage("reload", (client) => handleReload(this, client));
 
-      const { origin, dir } = data;
-      const range = 1024; // max distance for hits
-      let closestPlayer: Player | null = null;
-      let closestDist = range;
-
-      let hitPoint = { x: origin.x + dir.x * range, y: origin.y + dir.y * range };
-      let hitType: "none" | "player" | "wall" = "none";
-
-      this.broadcast("fired", { playerId: client.sessionId }, { except: client });  // Muzzle flash 
-
-      // Check players
-      for (const [id, player] of this.state.players) {
-        if (id === client.sessionId) continue;  // skip self
-        const toTarget = { x: player.x - origin.x, y: player.y - origin.y };
-
-        // Project vector length along dir (dot product)
-        const projLength = toTarget.x * dir.x + toTarget.y * dir.y;
-        if (projLength < 0 || projLength > range) continue; // behind or too far
-
-        // Distance from ray
-        const perpDist = Math.abs(toTarget.x * dir.y - toTarget.y * dir.x);
-        if (perpDist < 20) { // hit threshold
-          const distance = Math.sqrt(toTarget.x ** 2 + toTarget.y ** 2);
-          if (distance < closestDist) {
-            closestDist = distance;
-            closestPlayer = player;
-            hitPoint = { x: origin.x + dir.x * projLength, y: origin.y + dir.y * projLength };
-            hitType = "player";
-          }
-        }
-      }
-
-      // Check colliders (Walls)
-      for (const c of this.colliders) {
-        const tMinX = (c.x - origin.x) / dir.x;
-        const tMaxX = ((c.x + c.w) - origin.x) / dir.x;
-        const tMinY = (c.y - origin.y) / dir.y;
-        const tMaxY = ((c.y + c.h) - origin.y) / dir.y;
-
-        const tEnter = Math.max(Math.min(tMinX, tMaxX), Math.min(tMinY, tMaxY));
-        if (tEnter > 0 && tEnter < closestDist) {
-          closestDist = tEnter;
-          hitPoint = { x: origin.x + dir.x * tEnter, y: origin.y + dir.y * tEnter }
-          hitType = "wall";
-        }
-      }
-
-      // Apply damage if the player was hit
-      if (closestPlayer && closestPlayer.isAlive && !closestPlayer.isInvincible) {
-        closestPlayer.health -= 20;
-        if (closestPlayer.health <= 0 && closestPlayer.isAlive) {
-          closestPlayer.isAlive = false;
-          this.broadcast("player-dead", { playerId: closestPlayer.sessionId });
-
-          // Respawn after 3 seconds
-          this.clock.setTimeout(() => {
-            const spawnIdx = this.getSafeSpawnIndex(closestPlayer.team);
-            const spawn = this.spawns[spawnIdx];
-
-            closestPlayer.x = spawn.x;
-            closestPlayer.y = spawn.y;
-            closestPlayer.health = 100;
-            closestPlayer.isAlive = true;
-            closestPlayer.isInvincible = true;
-
-            this.broadcast("player-respawned", {
-              playerId: closestPlayer.sessionId,
-              x: spawn.x,
-              y: spawn.y,
-              isInvincible: true,  // <-- include explicitly
-            });
-
-            // Remove invincibility after 3 seconds
-            this.clock.setTimeout(() => {
-              closestPlayer.isInvincible = false;
-            }, 3000);
-          }, 3000);
-        }
-      }
-
-      // Broadcast hit position
-      this.broadcast("hit-effect", {
-        playerId: client.sessionId,
-        point: hitPoint,
-        type: hitType,
-        dir: { x: dir.x, y: dir.y }
-      });
-    });
   }
 
   onJoin(client: Client, options: any) {
@@ -229,37 +142,4 @@ export class MyRoom extends Room {
   onDispose() {
     console.log("room", this.roomId, "disposing...");
   }
-
-  getSafeSpawnIndex(team: "blue" | "red"): number {
-    // Find all spawns for the team
-    const teamSpawns = this.spawns.filter(s => s.team === team);
-
-    // Pick the spawn farthest from any enemy
-    let bestSpawnIdx = 0;
-    let maxDist = -Infinity;
-
-    for (let i = 0; i < teamSpawns.length; i++) {
-      const spawn = teamSpawns[i];
-      let minEnemyDist = Infinity;
-
-      for (const player of this.state.players.values()) {
-        if (player.team !== team && player.isAlive) {
-          const dx = player.x - spawn.x;
-          const dy = player.y - spawn.y;
-          const dist = Math.sqrt(dx * dx + dy * dy);
-          if (dist < minEnemyDist) {
-            minEnemyDist = dist;
-          }
-        }
-      }
-
-      if (minEnemyDist > maxDist) {
-        maxDist = minEnemyDist;
-        bestSpawnIdx = i;
-      }
-    }
-
-    return bestSpawnIdx;
-  }
-
 }
