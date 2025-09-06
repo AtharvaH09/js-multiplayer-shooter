@@ -1,7 +1,8 @@
 import { k } from "../App";
 import { getStateCallbacks, Room } from "colyseus.js";
-import type { MyRoomState, Player } from "../../../server/src/rooms/schema/MyRoomState";
+import { MyRoomState, Player } from "../../../server/src/rooms/schema/MyRoomState";
 import { GameObj } from "kaplay";
+import { showGameOptionsOverlay, hideGameOptionsOverlay } from "../UI/GameOptionsOverlay";
 
 /**
  * Stores all active players keyed by their session ID.
@@ -19,7 +20,6 @@ const allPlayers = new Map<string, {
  * Each entry keeps track of the current angle and the target angle.
  */
 const opponentAimData = new Map<string, { currentAngle: number; targetAngle: number }>();
-const opponentMuzzleFlash = new Map<string, { hasFired: boolean }>();
 
 /**
  * Reference to the local player's sprite for camera tracking.
@@ -29,8 +29,73 @@ let localPlayerSprite: GameObj | null = null;
 /**
  * Local State for Gun related UI elements
  */
+let gameStateText: GameObj;
 let ammoText: GameObj;
-let reloadSpinner: GameObj | null = null;
+let killText: GameObj;
+let timerText: GameObj;
+
+let overlayUI: GameObj | null = null;
+let overlayVisible = false;
+
+// Helpers to hide/show visuals consistently
+function hidePlayerVisuals(entry: { playerSprite: GameObj, gunSprite: GameObj }) {
+  const ps = entry.playerSprite;
+  const gs = entry.gunSprite ?? (ps as any).__gunSprite;
+  const hb = (ps as any).__healthBar;
+
+  ps.opacity = 0;
+  if (gs) gs.opacity = 0;
+  if (hb) hb.opacity = 0;
+
+  // remember that it's hidden (useful for respawn logic)
+  (ps as any).__isHiddenForDeath = true;
+}
+
+function showPlayerVisuals(entry: { playerSprite: GameObj, gunSprite: GameObj }) {
+  const ps = entry.playerSprite;
+  const gs = entry.gunSprite ?? (ps as any).__gunSprite;
+  const hb = (ps as any).__healthBar;
+
+  ps.opacity = 1;
+  if (gs) gs.opacity = 1;
+  if (hb) hb.opacity = 1;
+
+  (ps as any).__isHiddenForDeath = false;
+}
+
+// Shield creation / removal, tracked on sprite (__shield)
+function showInvincibilityShield(entry: { playerSprite: GameObj }, durationSeconds?: number) {
+  const ps = entry.playerSprite;
+  // avoid double-adding
+  if ((ps as any).__shield) return;
+
+  const shield = ps.add([
+    k.circle(28),
+    k.color(0, 255, 255),
+    k.opacity(0.35),
+    k.anchor("center"),
+    k.z(22),
+  ]);
+  (ps as any).__shield = shield;
+
+  if (durationSeconds) {
+    k.wait(durationSeconds, () => {
+      if ((ps as any).__shield) {
+        k.destroy((ps as any).__shield);
+        (ps as any).__shield = null;
+      }
+    });
+  }
+}
+
+function removeInvincibilityShield(entry: { playerSprite: GameObj }) {
+  const ps = entry.playerSprite;
+  if ((ps as any).__shield) {
+    k.destroy((ps as any).__shield);
+    (ps as any).__shield = null;
+  }
+}
+
 
 /**
  * Scene: Lobby
@@ -41,82 +106,167 @@ export function createLobbyScene() {
     const $ = getStateCallbacks(room);
     const spritesBySessionId: Record<string, GameObj> = {};
 
-    // Load and display map
-    room.send("request-map")
-
-    room.onMessage("map-info", async (map_name) => {
-      k.loadSprite("map", `assets/maps/${map_name}.png`);
-      const map = k.add([k.sprite("map"), k.pos(0, 0), k.anchor("topleft"), k.z(-1)]);
+    // Load Map
+    room.send("request-map");
+    room.onMessage("map-info", async (mapName) => {
+      k.loadSprite("map", `assets/maps/${mapName}.png`);
+      k.add([k.sprite("map"), k.pos(0, 0), k.anchor("topleft"), k.z(-1)]);
     });
 
-    /** Handle new player joining */
+    // **Global HUD**
+    const gameStateText = k.add([k.text("Waiting for players...", { size: 18 }), k.pos(k.width() / 2, 80), k.anchor("center"), k.color(255, 255, 255), k.fixed(), k.z(100)]);
+    const timerText = k.add([k.text("", { size: 18 }), k.pos(k.width() / 2, 110), k.anchor("center"), k.color(255, 255, 255), k.fixed(), k.z(100)]);
+    const scoreText = k.add([k.text("Objective: 40 points to win", { size: 16 }), k.pos(k.width() / 2, 20), k.anchor("center"), k.color(255, 255, 255), k.fixed()]);
+    const statusText = k.add([k.text("Match starting...", { size: 14 }), k.pos(k.width() / 2, 50), k.anchor("center"), k.color(255, 255, 255), k.fixed()]);
+
+    // **Game State Changes**
+    $(room.state).listen("gameState", (newState) => {
+      if (newState === "waiting") {
+        gameStateText.text = "Waiting for players...";
+        timerText.text = "";
+      } else if (newState === "countdown") {
+        gameStateText.text = "Match starting soon!";
+      } else if (newState === "in-progress") {
+        gameStateText.text = "Match in progress!";
+      } else if (newState === "ended") {
+        gameStateText.text = "Round Over!";
+      }
+    });
+
+    $(room.state).listen("countdown", (value) => {
+      if (room.state.gameState === "countdown") {
+        timerText.text = `Match starts in: ${value}s`;
+      }
+    });
+
+    $(room.state).listen("roundTime", (value) => {
+      if (room.state.gameState === "in-progress") {
+        const mins = Math.floor(value / 60);
+        const secs = value % 60;
+        timerText.text = `Time left: ${mins}:${secs.toString().padStart(2, "0")}`;
+      }
+    });
+
+    // **Score Updates**
+    $(room.state).onChange(() => {
+      const red = room.state.redScore;
+      const blue = room.state.blueScore;
+      scoreText.text = `Red: ${red} | Blue: ${blue} (40 to win)`;
+
+      if (red > blue) {
+        statusText.text = "Team Red is winning!";
+        statusText.color = k.rgb(255, 50, 50);
+      } else if (blue > red) {
+        statusText.text = "Team Blue is winning!";
+        statusText.color = k.rgb(50, 50, 255);
+      } else {
+        statusText.text = "It's a tie!";
+        statusText.color = k.rgb(255, 255, 255);
+      }
+    });
+
+    // **Handle Player Join**
     $(room.state).players.onAdd((player, sessionId) => {
       const { playerSprite, gunSprite } = createPlayer(player);
       spritesBySessionId[sessionId] = playerSprite;
       allPlayers.set(sessionId, { playerSprite, gunSprite });
+
+      // listen to that player's isInvincible field
+      $(player).listen("isInvincible", (val: boolean) => {
+        const entry = allPlayers.get(sessionId);
+        if (!entry) return;
+        if (val) showInvincibilityShield(entry);
+        else removeInvincibilityShield(entry);
+      });
+
+      // handle death if server changes isAlive (optional)
+      $(player).listen("isAlive", (val: boolean) => {
+        const entry = allPlayers.get(sessionId);
+        if (!entry) return;
+        if (!val) {
+          // server flipped alive -> false (dead)
+          // do the same hide + dissipate
+          hidePlayerVisuals(entry);
+          removeInvincibilityShield(entry);
+        } else {
+          // respawn via schema change
+          showPlayerVisuals(entry);
+        }
+      });
 
       if (sessionId === room.sessionId) {
         setupLocalPlayerControls(sessionId, room, $);
       }
     });
 
-    /** Handle remote aiming messages */
+    // **Handle Player Leave**
+    $(room.state).players.onRemove((_, sessionId) => {
+      k.destroy(spritesBySessionId[sessionId]);
+      delete spritesBySessionId[sessionId];
+      allPlayers.delete(sessionId);
+    });
+
+    // **Aim Sync**
     room.onMessage("aim-taken", ({ playerId, target }) => {
       if (playerId === room.sessionId) return;
       const player = allPlayers.get(playerId);
       if (!player) return;
-
       const angle = k.vec2(target.x, target.y).sub(player.playerSprite.pos).angle();
-      const data = opponentAimData.get(playerId);
-      if (!data) {
-        opponentAimData.set(playerId, {
-          currentAngle: player.gunSprite.angle,
-          targetAngle: angle,
-        });
-      } else {
-        data.targetAngle = angle;
-      }
+      opponentAimData.set(playerId, { currentAngle: player.gunSprite.angle, targetAngle: angle });
     });
 
-    /** Handle gun muzzle flashes */
-    room.onMessage("fired", ({ playerId }) => {
-      if (playerId === room.sessionId) return;
+    // **Muzzle Flash**
+    room.onMessage("player-fired", ({ playerId }) => {
       const player = allPlayers.get(playerId);
       if (!player) return;
-
-      const data = opponentMuzzleFlash.get(playerId);
-      if (!data) {
-        opponentMuzzleFlash.set(playerId, {
-          hasFired: false,
-        });
-      } else {
-        data.hasFired = true;
-      }
+      const flash = player.gunSprite.add([
+        k.pos(player.gunSprite.width * 2, Math.abs(player.gunSprite.angle) > 90 ? 7 : -7),
+        k.circle(10),
+        k.color(255, 255, 0),
+        k.opacity(0.5),
+      ]);
+      flash.fadeOut(0.2).then(() => k.destroy(flash));
     });
 
-    /** Handle Hitmarker */
+    // **Hitmarker**
     room.onMessage("hit-effect", ({ point, type, dir }) => {
-      // Different colors for wall vs player
+      if (!point) return;
+
+      // color: red for player hit, greyish for walls
       const colorValue = type === "player" ? k.rgb(255, 0, 0) : k.rgb(140, 147, 176);
-      const shotAngle = k.vec2(dir.x, dir.y).scale(-1).angle();  // flip by scaling inversely  
+
+      // compute particle direction (reverse of shot dir), guard against missing dir
+      const shotAngle = (dir && typeof dir.x === "number" && typeof dir.y === "number")
+        ? k.vec2(dir.x, dir.y).scale(-1).angle()
+        : 0;
+
+      // guard: getSprite may be undefined during initial load
+      const hex = k.getSprite("hexagon");
+      const tex = hex && (hex as any).data ? (hex as any).data.tex : undefined;
+      const quad = hex && (hex as any).data && (hex as any).data.frames ? (hex as any).data.frames[0] : undefined;
+
+      // build particle config (omit texture/quads if not available)
+      const particleConfig: any = {
+        max: 20,
+        speed: [200, 250],
+        lifeTime: [0.2, 0.75],
+        colors: [colorValue],
+        opacities: [1.0, 0.0],
+        angle: [0, 360],
+      };
+      if (tex) particleConfig.texture = tex;
+      if (quad) particleConfig.quads = [quad];
+
+      const emitterOpts = {
+        lifetime: 0.75,
+        rate: 0,
+        direction: shotAngle,
+        spread: 45,
+      };
 
       const splatter = k.add([
         k.pos(point.x, point.y),
-        k.particles({
-          max: 20,
-          speed: [200, 250],
-          lifeTime: [0.2, 0.75],
-          colors: [colorValue],
-          opacities: [1.0, 0.0],
-          angle: [0, 360],
-          texture: k.getSprite("hexagon").data.tex,
-          quads: [k.getSprite("hexagon").data.frames[0]],
-        }, {
-          lifetime: 0.75,
-          rate: 0,
-          direction: shotAngle,
-          spread: 45,
-        }),
+        k.particles(particleConfig, emitterOpts),
       ]);
 
       splatter.emit(10);
@@ -125,24 +275,22 @@ export function createLobbyScene() {
       });
     });
 
-    /** Handle Player Death */
-    room.onMessage("player-dead", ({ playerId }) => {
+    // **Reload Animation**
+    room.onMessage("player-reload-start", ({ playerId, reloadTime }) => {
       const player = allPlayers.get(playerId);
       if (!player) return;
+      const spinner = player.gunSprite.add([k.sprite("reloadSpinner"), k.pos(20, -20), k.anchor("center"), k.z(50)]);
+      spinner.play("spin");
+      k.wait(reloadTime / 1000, () => spinner.destroy());
+    });
 
-      const ps = player.playerSprite;
-      const gs = player.gunSprite ?? (ps as any).__gunSprite;
-      const hb = (ps as any).__healthBar;
+    // When server says a player died
+    room.onMessage("player-dead", ({ playerId }) => {
+      const entry = allPlayers.get(playerId);
+      if (!entry) return;
 
-      // Create dissipate effect
-      const rect = {
-        pos: k.vec2(-16, -16), // offset to center particles
-        width: 32,
-        height: 32
-      };
-
-      rect.pos = rect.pos.sub(rect.width / 2, rect.height / 2);
-
+      // particle dissipate effect
+      const ps = entry.playerSprite;
       const dissipate = k.add([
         k.pos(ps.pos),
         k.particles({
@@ -162,117 +310,93 @@ export function createLobbyScene() {
           spread: 0,
         }),
       ]);
-
       dissipate.emit(20);
-      dissipate.onEnd(() => {
-        k.destroy(dissipate);
-      });
+      dissipate.onEnd(() => k.destroy(dissipate));
 
-      // hide visuals (don't destroy — keep object for respawn)
-      ps.opacity = 0;
-      if (gs) gs.opacity = 0;
-      if (hb) hb.opacity = 0;
+      // hide visuals
+      hidePlayerVisuals(entry);
 
-      // stop animations and mark as dead
-      try { ps.play && ps.play("idle-down"); } catch (e) { }
-      player.isDead = true;
+      // remove any shield while dead
+      removeInvincibilityShield(entry);
     });
 
-    /** Handle player respawn */
+    // When server says a player respawned
     room.onMessage("player-respawned", ({ playerId, x, y, isInvincible }) => {
-      const playerState = room.state.players.get(playerId); // authoritative schema
-      let player = allPlayers.get(playerId);
-
-      if (!player) {
-        if (playerState) {
-          const { playerSprite, gunSprite } = createPlayer(playerState);
-          player = { playerSprite, gunSprite };
-          allPlayers.set(playerId, player);
+      let entry = allPlayers.get(playerId);
+      if (!entry) {
+        // If not present client-side (possible late join), create sprite from state
+        const pState = room.state.players.get(playerId);
+        if (pState) {
+          const { playerSprite, gunSprite } = createPlayer(pState);
+          allPlayers.set(playerId, { playerSprite, gunSprite });
+          // now update entry
+          entry = allPlayers.get(playerId)!;
+        } else {
+          return;
         }
-      } else {
-        player.playerSprite.pos.x = x;
-        player.playerSprite.pos.y = y;
-        player.playerSprite.opacity = 1;
-
-        const ps = player.playerSprite;
-        const gs = player.gunSprite ?? (ps as any).__gunSprite;
-        const hb = (ps as any).__healthBar;
-
-        if (gs) gs.opacity = 1;
-        if (hb) hb.opacity = 1;
-        player.isDead = false;
       }
 
+      // reposition & show visuals
+      entry.playerSprite.pos.x = x;
+      entry.playerSprite.pos.y = y;
+      showPlayerVisuals(entry);
+
+      // short invincibility shield if server told us to
       if (isInvincible) {
-        const shield = player.playerSprite.add([
-          k.circle(28),
-          k.color(0, 255, 255),
-          k.opacity(0.35),
-          k.anchor("center"),
-          k.z(22),
-        ]);
-
-        k.wait(3, () => { if (shield) k.destroy(shield); });
+        showInvincibilityShield(entry, 3); // 3 seconds local fallback
       }
     });
 
-    /** Update ammo HUD on schema change */
-    $(room.state).players.onChange((player, key) => {
-      if (key === room.sessionId) {
-        const gun = (player as any).gun;
-        if (gun && ammoText) {
-          ammoText.text = `Ammo: ${gun.ammo} / ${gun.reserveAmmo}`;
-        }
+    // **Round Ended**
+    room.onMessage("round-ended", ({ winner, redScore, blueScore }) => {
+      k.destroy(timerText);
+      k.add([k.text(`Round Over! Winner: ${winner}\nRed: ${redScore} | Blue: ${blueScore}`, { size: 24 }), k.pos(k.width() / 2, k.height() / 2), k.anchor("center"), k.color(255, 255, 0), k.z(999), k.fixed()]);
+    });
+
+    // **Options menu**
+    // Trigger overlay with Tab
+    k.onKeyPress("tab", () => {
+      if (!overlayVisible) {
+        overlayVisible = true;
+        showGameOptionsOverlay(room);
       }
     });
 
+    k.onKeyRelease("tab", () => {
+      overlayVisible = false;
+      hideGameOptionsOverlay();
+    });
 
-    // Reload animation
-    room.onMessage("player-reload-start", ({ playerId }) => {
-      if (playerId === room.sessionId && localPlayerSprite) {
-        // Show spinner on gun
-        reloadSpinner = localPlayerSprite.gunSprite.add([
-          k.sprite("reloadSpinner"),
-          k.pos(20, -20),
-          k.anchor("center"),
-          k.z(50),
-        ]);
-        reloadSpinner.play("spin");
+    // Optional: Button in corner to toggle
+    const menuButton = k.add([
+      k.rect(40, 40),
+      k.color(50, 50, 50),
+      k.pos(k.width() - 60, 20),
+      k.anchor("topleft"),
+      k.z(1000),
+      k.fixed(),
+      k.area(),
+    ]);
+
+    menuButton.add([
+      k.text("≡", { size: 24 }),
+      k.color(255, 255, 255),
+      k.anchor("center"),
+      k.pos(20, 20),
+    ]);
+
+    menuButton.onClick(() => {
+      if (overlayVisible) {
+        hideGameOptionsOverlay();
+        overlayVisible = false;
+      } else {
+        showGameOptionsOverlay(room);
+        overlayVisible = true;
       }
     });
-
-    room.onMessage("player-reload-end", ({ playerId, ammo, reserveAmmo }) => {
-      if (playerId === room.sessionId) {
-        if (reloadSpinner) {
-          reloadSpinner.destroy();
-          reloadSpinner = null;
-        }
-        ammoText.text = `Ammo: ${ammo} / ${reserveAmmo}`;
-      }
-    });
-
-    /** Handle player leaving */
-    $(room.state).players.onRemove((_, sessionId) => {
-      k.destroy(spritesBySessionId[sessionId]);
-      delete spritesBySessionId[sessionId];
-      allPlayers.delete(sessionId);
-    });
-
-    /** Movement input bindings */
-    k.onKeyDown("w", () => sendMove("up"));
-    k.onKeyDown("s", () => sendMove("down"));
-    k.onKeyDown("a", () => sendMove("left"));
-    k.onKeyDown("d", () => sendMove("right"));
-
-    /** Sends a move command to the server */
-    function sendMove(dir: string) {
-      const self = room.state.players.get(room.sessionId);
-      if (!self) return;
-      room.send("move", dir);
-    }
   });
-
 }
+
 
 /**
  * Creates a new player sprite and associated gun.
@@ -326,6 +450,8 @@ function createPlayer(player: Player) {
   ]);
   (playerSprite as any).__healthBar = healthBar;
 
+  (playerSprite as any).__shield = null;
+  (playerSprite as any).__isHiddenForDeath = false;
 
   setupPlayerInterpolation(playerSprite, gunSprite, player);
   setupCameraFollow(playerSprite);
@@ -350,24 +476,6 @@ function setupPlayerInterpolation(playerSprite: GameObj, gunSprite: GameObj, pla
       data.currentAngle = k.lerp(data.currentAngle, data.targetAngle, 2 * k.dt());
       opponent.gunSprite.angle = data.currentAngle;
       opponent.gunSprite.flipY = Math.abs(data.currentAngle) > 90;
-    }
-
-    // Muzzle Flash Synchronization
-    for (const [playerId, data] of opponentMuzzleFlash) {
-      const opponent = allPlayers.get(playerId);
-      if (!opponent) continue;
-
-      if (data.hasFired) {
-        const flash = opponent.gunSprite.add([
-          k.pos(opponent.gunSprite.width * 1.5, Math.abs(opponent.gunSprite.angle) > 90 ? 7 : -7),
-          k.circle(10),
-          k.color(255, 255, 0),
-          k.opacity(0.5),
-        ]);
-        flash.fadeOut(0.2).then(() => k.destroy(flash));
-        data.hasFired = false;
-      }
-
     }
 
     // Position interpolation
@@ -442,72 +550,72 @@ function setupLocalPlayerControls(sessionId: string, room: Room<MyRoomState>, $:
   localPlayerSprite = allPlayers.get(sessionId)?.playerSprite ?? null;
   let lastAimSent = 0;
 
-  ammoText = k.add([
-    k.text("", { size: 16 }),
-    k.pos(16, k.height() - 32),
-    k.fixed(),
-    k.color(255, 255, 255),
-    k.z(100),
-  ]);
+  // **Local HUD**
+  ammoText = k.add([k.text("", { size: 16 }), k.pos(16, k.height() - 32), k.fixed(), k.color(255, 255, 255), k.z(100)]);
+  killText = k.add([k.text("Kills: 0", { size: 16 }), k.pos(16, k.height() - 64), k.fixed(), k.color(255, 255, 255), k.z(100)]);
 
+  // **Schema Updates**
   const playerState = room.state.players.get(room.sessionId);
   if (playerState) {
     ammoText.text = `Ammo: ${playerState.gun.ammo} / ${playerState.gun.reserveAmmo}`;
+    killText.text = `Kills: ${playerState.kills}`;
 
     $(playerState.gun).onChange(() => {
       ammoText.text = `Ammo: ${playerState.gun.ammo} / ${playerState.gun.reserveAmmo}`;
     });
+
+    $(playerState).listen("kills", (value) => {
+      killText.text = `Kills: ${value}`;
+    });
+
+    // **Aiming**
+    k.onMouseMove(() => {
+      const self = allPlayers.get(sessionId);
+      if (!self) return;
+      const worldMousePos = k.toWorld(k.mousePos());
+      const angle = worldMousePos.sub(self.playerSprite.pos).angle();
+      self.gunSprite.angle = angle;
+      self.gunSprite.flipY = Math.abs(angle) > 90;
+      const now = Date.now();
+      if (now - lastAimSent > 100) {
+        lastAimSent = now;
+        room.send("aim", { playerId: sessionId, target: worldMousePos });
+      }
+    });
+
+    // **Shooting (Auto-Fire)**
+    let isFiring = false;
+    let fireLoop: any = null;
+
+    k.onMouseDown(() => {
+      isFiring = true;
+      const tryShoot = () => {
+        const playerState = room.state.players.get(sessionId);
+        if (!playerState) return;
+        const gun = playerState.gun;
+        if (!gun || gun.ammo <= 0 || gun.isReloading) return;
+        const self = allPlayers.get(sessionId);
+        if (!self) return;
+        const worldMousePos = k.toWorld(k.mousePos());
+        const dir = worldMousePos.sub(self.playerSprite.pos).unit();
+        room.send("shoot", { dir: { x: dir.x, y: dir.y } });
+      };
+      tryShoot();
+      fireLoop = setInterval(() => { if (isFiring) tryShoot(); }, playerState.gun.fireRate || 200);
+    });
+
+    k.onMouseRelease(() => {
+      isFiring = false;
+      if (fireLoop) clearInterval(fireLoop);
+    });
+
+    // **Reload**
+    k.onKeyPress("r", () => room.send("reload"));
+
+    // **Movement**
+    k.onKeyDown("w", () => room.send("move", "up"));
+    k.onKeyDown("s", () => room.send("move", "down"));
+    k.onKeyDown("a", () => room.send("move", "left"));
+    k.onKeyDown("d", () => room.send("move", "right"));
   }
-
-  k.onMouseMove(() => {
-    const self = allPlayers.get(sessionId);
-    if (!self) return;
-
-    const worldMousePos = k.toWorld(k.mousePos());
-    const angle = worldMousePos.sub(self.playerSprite.pos).angle();
-    self.gunSprite.angle = angle;
-    self.gunSprite.flipY = Math.abs(angle) > 90;
-
-    const now = Date.now();
-    if (now - lastAimSent > 100) {
-      lastAimSent = now;
-      room.send("aim", { playerId: sessionId, target: worldMousePos });
-    }
-  });
-
-  // Shooting
-  k.onMousePress(() => {
-    const playerState = room.state.players.get(sessionId);
-    if (!playerState) return;
-
-    const gun = (playerState as any).gun;
-    if (!gun || gun.ammo <= 0) {
-      console.log("Out of ammo! Reload!");
-      return; // do not send shoot
-    }
-
-    // Show muzzle flash visually
-    const self = allPlayers.get(sessionId);
-    if (!self) return;
-
-    const flash = self.gunSprite.add([
-      k.pos(self.gunSprite.width * 2, Math.abs(self.gunSprite.angle) > 90 ? 7 : -7),
-      k.circle(10),
-      k.color(255, 255, 0),
-      k.opacity(0.5),
-    ]);
-    flash.fadeOut(0.2).then(() => k.destroy(flash));
-
-    // Send shoot request to server
-    const worldMousePos = k.toWorld(k.mousePos());
-    const dir = worldMousePos.sub(self.playerSprite.pos).unit();
-
-    room.send("shoot", { dir: { x: dir.x, y: dir.y } });
-  });
-
-
-  // Reload key (R)
-  k.onKeyPress("r", () => {
-    room.send("reload");
-  });
 }

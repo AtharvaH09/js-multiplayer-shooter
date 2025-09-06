@@ -22,6 +22,8 @@ export function handleRespawn(room: MyRoom, player: Player) {
     player.health = player.maxHealth;
     player.isAlive = true;
     player.isInvincible = true;
+    player.gun.ammo = player.gun.magSize;
+    player.gun.reserveAmmo = player.gun.maxReserveAmmo;
 
     // Notify all clients
     room.broadcast("player-respawned", {

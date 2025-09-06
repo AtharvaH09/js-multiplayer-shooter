@@ -12,6 +12,12 @@ export function handleShoot(
   client: Client,
   data: { dir: { x: number; y: number } }
 ) {
+
+  if (room.state.gameState !== "in-progress") {
+    client.send("action-rejected", { reason: "match-not-started" });
+    return;
+  }
+
   const shooter = room.state.players.get(client.sessionId);
   if (!shooter || !shooter.isAlive) return;
 
@@ -33,7 +39,7 @@ export function handleShoot(
   room.lastShotTimes.set(client.sessionId, now);
 
   // Broadcast muzzle flash to others
-  room.broadcast("fired", { playerId: client.sessionId }, { except: client });
+  room.broadcast("player-fired", { playerId: client.sessionId });
 
   // Perform raycast for hit detection
   doRaycast(room, client.sessionId, shooter, data.dir);
@@ -93,6 +99,21 @@ function doRaycast(room: MyRoom, shooterId: string, shooter: Player, dir: { x: n
     closestPlayer.health -= 20;
     if (closestPlayer.health <= 0) {
       closestPlayer.isAlive = false;
+      closestPlayer.deaths += 1;
+
+      if (shooter && shooter.team !== closestPlayer.team) {
+        shooter.kills += 1;
+        if (shooter.team === "red") {
+          room.state.redScore += 1;
+        } else if (shooter.team === "blue") {
+          room.state.blueScore += 1;
+        }
+      }
+
+      if (room.state.redScore >= 40 || room.state.blueScore >= 40) {
+        room._endRound();
+      }
+
       room.broadcast("player-dead", { playerId: closestPlayer.sessionId });
       handleRespawn(room, closestPlayer);
     }

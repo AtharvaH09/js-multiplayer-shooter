@@ -21,10 +21,14 @@ export function handleReload(room: MyRoom, client: Client) {
   // Start reload
   gun.isReloading = true;
 
-  // Notify local client for reload animation
-  client.send("player-reload-start", { playerId: client.sessionId });
+  // Notify clients for reload animation
+  room.broadcast("player-reload-start", {
+    playerId: client.sessionId,
+    reloadTime: gun.reloadTime
+  });
 
-  const reloadTime = 2000; // 2 seconds reload time
+
+  const reloadTime = gun.reloadTime || 2000; // 2 seconds reload time
   room.clock.setTimeout(() => {
     // Calculate ammo transfer
     const neededAmmo = gun.magSize - gun.ammo;
@@ -35,10 +39,7 @@ export function handleReload(room: MyRoom, client: Client) {
     gun.isReloading = false;
 
     // Notify local client to stop spinner & update HUD
-    client.send("player-reload-end", {
-      playerId: client.sessionId,
-      ammo: gun.ammo,
-      reserveAmmo: gun.reserveAmmo
-    });
+    // room.broadcast("player-reload-end", { playerId: client.sessionId }, { except: client });
+    room.broadcast("player-reload-end", { playerId: client.sessionId });
   }, reloadTime);
 }
