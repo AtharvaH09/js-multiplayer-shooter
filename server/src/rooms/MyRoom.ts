@@ -16,7 +16,8 @@ let timeLeft = ROUND_DURATION;
 /**  list of avatars */
 const avatars = ['red', 'blue', 'blonde'];
 /** list of maps */
-const maps = ['NP_test'];
+// const maps = ['NP_test'];
+const maps = ['Nexon_Prime_beta'];
 /** list of guns  */
 const guns = ['pistol_test'];
 

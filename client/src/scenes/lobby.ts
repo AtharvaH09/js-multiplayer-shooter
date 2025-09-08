@@ -3,6 +3,7 @@ import { getStateCallbacks, Room } from "colyseus.js";
 import { MyRoomState, Player } from "../../../server/src/rooms/schema/MyRoomState";
 import { GameObj } from "kaplay";
 import { showGameOptionsOverlay, hideGameOptionsOverlay } from "../UI/GameOptionsOverlay";
+import { useCrosshair } from "../UI/mouse_pointer";
 
 /**
  * Stores all active players keyed by their session ID.
@@ -105,6 +106,7 @@ export function createLobbyScene() {
   k.scene("lobby", (room: Room<MyRoomState>) => {
     const $ = getStateCallbacks(room);
     const spritesBySessionId: Record<string, GameObj> = {};
+    useCrosshair(k, "white");
 
     // Load Map
     room.send("request-map");
