@@ -31,5 +31,10 @@ export function loadAssets() {
   k.loadSprite("hexagon", "/assets/vfx/particle_hexagon_filledB.png");
   k.loadSprite("star", "/assets/vfx/particle_star_filled.png");
 
+  // Audio
+  k.loadSound("m1911-shoot", "/assets/sounds/m1911-shoot.mp3");
+  k.loadSound("m1911-reload", "/assets/sounds/m1911-reload.mp3");
+  k.loadSound("m1911-empty-shoot", "/assets/sounds/empty-gun-shot-6209.mp3");
+
   // Maps are loaded dynamically based on room data
 }

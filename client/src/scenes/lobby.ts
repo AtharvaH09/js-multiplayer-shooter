@@ -227,6 +227,12 @@ export function createLobbyScene() {
         k.color(255, 255, 0),
         k.opacity(0.5),
       ]);
+      // Gunshot audio only when server says "this shot is valid"
+      if (playerId === room.sessionId) {
+        k.play("m1911-shoot", { volume: 0.3, detune: Math.random() * 60 - 30 });
+      } else {
+        k.play("m1911-shoot", { volume: 0.2 }); // softer for others
+      }
       flash.fadeOut(0.2).then(() => k.destroy(flash));
     });
 
@@ -283,6 +289,7 @@ export function createLobbyScene() {
       if (!player) return;
       const spinner = player.gunSprite.add([k.sprite("reloadSpinner"), k.pos(20, -20), k.anchor("center"), k.z(50)]);
       spinner.play("spin");
+      k.play("m1911-reload", { speed: 4 })
       k.wait(reloadTime / 1000, () => spinner.destroy());
     });
 
@@ -591,17 +598,21 @@ function setupLocalPlayerControls(sessionId: string, room: Room<MyRoomState>, $:
 
     k.onMouseDown(() => {
       isFiring = true;
+
       const tryShoot = () => {
         const playerState = room.state.players.get(sessionId);
         if (!playerState) return;
         const gun = playerState.gun;
         if (!gun || gun.ammo <= 0 || gun.isReloading) return;
+
         const self = allPlayers.get(sessionId);
         if (!self) return;
+
         const worldMousePos = k.toWorld(k.mousePos());
         const dir = worldMousePos.sub(self.playerSprite.pos).unit();
         room.send("shoot", { dir: { x: dir.x, y: dir.y } });
       };
+
       tryShoot();
       fireLoop = setInterval(() => { if (isFiring) tryShoot(); }, playerState.gun.fireRate || 200);
     });
@@ -609,6 +620,27 @@ function setupLocalPlayerControls(sessionId: string, room: Room<MyRoomState>, $:
     k.onMouseRelease(() => {
       isFiring = false;
       if (fireLoop) clearInterval(fireLoop);
+    });
+
+    // Empty gun sound
+    let lastEmptyClick = 0;
+
+    k.onMousePress(() => {
+
+      const playerState = room.state.players.get(sessionId);
+      if (!playerState) return;
+      const gun = playerState.gun;
+      if (!gun || gun.isReloading) return;
+
+      // If no ammo, play empty click only once per 500ms
+      if (gun.ammo <= 0) {
+        const now = Date.now();
+        if (now - lastEmptyClick > 500) {   // prevent rapid spam
+          k.play("m1911-empty-shoot", { volume: 0.2 });
+          lastEmptyClick = now;
+        }
+        return;
+      }
     });
 
     // **Reload**
