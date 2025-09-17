@@ -1,6 +1,8 @@
 import { k } from "../App";
 
 export function loadAssets() {
+  k.loadSprite("title", "/title.svg");
+  
   // Player spritesheet (9 rows × 3 columns)
   k.loadSprite("all_avatars", "/assets/player/neo_zero_char_01.png", {
     sliceX: 3,

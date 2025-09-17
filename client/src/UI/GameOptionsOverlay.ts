@@ -35,7 +35,7 @@ export function showGameOptionsOverlay(room: Room<MyRoomState>) {
 
   // Objective & Scores
   const scoresText = container.add([
-    k.text(`Red: ${room.state.redScore} | Blue: ${room.state.blueScore} (40 to win)`, { size: 20 }),
+    k.text(`Blue: ${room.state.blueScore} | Red: ${room.state.redScore} (40 to win)`, { size: 20 }),
     k.color(255, 255, 255),
     k.pos(0, -160),
     k.anchor("center"),
@@ -71,12 +71,12 @@ export function showGameOptionsOverlay(room: Room<MyRoomState>) {
   container.add([
     k.text("Red Team", { size: 18 }),
     k.color(255, 50, 50),
-    k.pos(-200, tableYStart - 40),
+    k.pos(100, tableYStart - 40),
   ]);
   container.add([
     k.text("Blue Team", { size: 18 }),
     k.color(50, 50, 255),
-    k.pos(100, tableYStart - 40),
+    k.pos(-200, tableYStart - 40),
   ]);
 
   // Dynamic rows
@@ -86,16 +86,16 @@ export function showGameOptionsOverlay(room: Room<MyRoomState>) {
       .filter(c => (c as any).__isRow)
       .forEach(c => k.destroy(c));
 
-    const redPlayers = [...room.state.players.values()].filter(p => p.team === "red");
     const bluePlayers = [...room.state.players.values()].filter(p => p.team === "blue");
+    const redPlayers = [...room.state.players.values()].filter(p => p.team === "red");
 
     const maxRows = Math.max(redPlayers.length, bluePlayers.length);
 
     for (let i = 0; i < maxRows; i++) {
       const y = tableYStart + i * rowHeight;
 
-      if (redPlayers[i]) {
-        const p = redPlayers[i];
+      if (bluePlayers[i]) {
+        const p = bluePlayers[i];
         const row = container.add([
           k.text(`${p.name ?? `Guest-${p.sessionId}`} | K:${p.kills} D:${p.deaths}`, { size: 16 }),
           k.color(255, 255, 255),
@@ -104,8 +104,8 @@ export function showGameOptionsOverlay(room: Room<MyRoomState>) {
         (row as any).__isRow = true;
       }
 
-      if (bluePlayers[i]) {
-        const p = bluePlayers[i];
+      if (redPlayers[i]) {
+        const p = redPlayers[i];
         const row = container.add([
           k.text(`${p.name ?? `Guest-${p.sessionId}`} | K:${p.kills} D:${p.deaths}`, { size: 16 }),
           k.color(255, 255, 255),
@@ -115,7 +115,7 @@ export function showGameOptionsOverlay(room: Room<MyRoomState>) {
       }
     }
 
-    scoresText.text = `Red: ${room.state.redScore} | Blue: ${room.state.blueScore} (40 to win)`;
+    scoresText.text = `Blue: ${room.state.blueScore} | Red: ${room.state.redScore} (40 to win)`;
   };
 
   // Update every second for real-time stats

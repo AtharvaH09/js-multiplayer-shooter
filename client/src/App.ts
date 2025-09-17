@@ -7,7 +7,8 @@ import type { MyRoomState } from '../../server/src/rooms/schema/MyRoomState';
 import addButton from './UI/button';
 import { useCrosshair } from './UI/mouse_pointer';
 import { loadAssets } from './utils/loadAssets';
-import { createMainMenuScene } from './scenes/mainMenu';
+// import { createMainMenuScene } from './scenes/mainMenu';
+import loginScene from './scenes/titleScreen';
 
 // Initialize kaplay
 export const k = kaplay({
@@ -23,7 +24,8 @@ loadAssets();
 
 // Create all scenes
 createLobbyScene();
-createMainMenuScene(joinRoom);
+// createMainMenuScene(joinRoom);
+loginScene();
 
 async function joinRoom() {
 
@@ -43,7 +45,10 @@ async function joinRoom() {
 }
 
 async function main() {
-  k.go("main-menu", joinRoom);
+  k.scene("main-menu", () => {
+    const startBtn = addButton("Start", k.vec2(200, 100), joinRoom);
+  });
+  k.go("main-menu");
 }
 
 main();

@@ -1,0 +1,197 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>VORN! Launcher</title>
+  <style>
+    body {
+      background-color: black;
+      margin: 0;
+      padding: 0;
+      color: white;
+      font-family: sans-serif;
+    }
+
+    header {
+      display: flex;
+      justify-content: center;
+      align-items: center;
+    }
+
+    .title {
+      height: 20rem;
+    }
+
+    .main {
+      display: flex;
+      justify-content: center;
+      align-items: center;
+    }
+
+    .login,
+    .signup {
+      display: flex;
+      justify-content: center;
+      align-items: center;
+      flex-direction: column;
+      gap: 0.5rem;
+    }
+
+    fieldset {
+      padding: 2rem;
+      margin: 1rem;
+      display: flex;
+      justify-content: center;
+      align-items: center;
+      flex-direction: column;
+      gap: 0.5rem;
+    }
+
+    button {
+      width: fit-content;
+      padding: 0.5rem 1rem;
+      cursor: pointer;
+    }
+
+    a {
+      color: white;
+    }
+
+    #status {
+      margin-top: 1rem;
+      color: #0f0;
+      font-size: 0.9rem;
+    }
+
+    .hidden {
+      display: none;
+    }
+  </style>
+</head>
+
+<body>
+  <header>
+    <img src="public/title.svg" class="title" alt="game title">
+  </header>
+
+  <section class="main">
+    <section class="login" id="loginSection">
+      <fieldset>
+        <legend>Login</legend>
+        <input type="text" id="username" placeholder="Username" />
+        <input type="password" id="password" placeholder="Password" />
+        <button id="loginBtn">Login</button>
+      </fieldset>
+      Don't have an account?
+      <button id="showSignupBtn">Signup</button>
+      Or
+      <button id="guestBtn">Continue as Guest</button>
+      <div id="status"></div>
+    </section>
+
+    <section class="signup hidden" id="signupSection">
+      <fieldset>
+        <legend>Signup</legend>
+        <input type="text" id="newUsername" placeholder="Choose username" />
+        <input type="password" id="newPassword" placeholder="Choose password" />
+        <button id="doSignupBtn">Create Account</button>
+      </fieldset>
+      Already have an account?
+      <button id="backToLoginBtn">Back to Login</button>
+      <div id="signupStatus"></div>
+    </section>
+  </section>
+
+  <footer></footer>
+
+  <script>
+    const API_URL = "http://localhost:5555";
+    const GAME_URL = "http://localhost:5173";
+
+    const status = document.getElementById("status");
+    const signupStatus = document.getElementById("signupStatus");
+
+    // Login
+    document.getElementById("loginBtn").onclick = async () => {
+      const username = document.getElementById("username").value.trim();
+      const password = document.getElementById("password").value.trim();
+
+      if (!username || !password) {
+        status.textContent = "Please fill in both fields.";
+        return;
+      }
+
+      try {
+        const res = await fetch(`${API_URL}/players/login`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ username, password }),
+        });
+
+        const data = await res.json();
+        if (!res.ok) {
+          status.textContent = data.message || "Login failed.";
+          return;
+        }
+
+        localStorage.setItem("token", data.token);
+        status.textContent = "Login successful!";
+        setTimeout(() => window.location.href = GAME_URL, 1000);
+      } catch (err) {
+        status.textContent = "Network error.";
+      }
+    };
+
+    // Show signup form
+    document.getElementById("showSignupBtn").onclick = () => {
+      document.getElementById("loginSection").classList.add("hidden");
+      document.getElementById("signupSection").classList.remove("hidden");
+    };
+
+    // Back to login
+    document.getElementById("backToLoginBtn").onclick = () => {
+      document.getElementById("signupSection").classList.add("hidden");
+      document.getElementById("loginSection").classList.remove("hidden");
+    };
+
+    // Do signup
+    document.getElementById("doSignupBtn").onclick = async () => {
+      const username = document.getElementById("newUsername").value.trim();
+      const password = document.getElementById("newPassword").value.trim();
+
+      if (!username || !password) {
+        signupStatus.textContent = "Please fill in both fields.";
+        return;
+      }
+
+      try {
+        const res = await fetch(`${API_URL}/players/signup`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ username, password }),
+        });
+
+        const data = await res.json();
+        if (!res.ok) {
+          signupStatus.textContent = data.message || "Signup failed.";
+          return;
+        }
+
+        signupStatus.textContent = "Signup successful! Please login.";
+      } catch (err) {
+        signupStatus.textContent = "Network error.";
+      }
+    };
+
+    // Guest
+    document.getElementById("guestBtn").onclick = () => {
+      alert("Playing as Guest. Progress will not be saved.");
+      localStorage.removeItem("token");
+      window.location.href = GAME_URL;
+    };
+  </script>
+</body>
+
+</html>

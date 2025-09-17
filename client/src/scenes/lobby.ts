@@ -151,9 +151,9 @@ export function createLobbyScene() {
 
     // **Score Updates**
     $(room.state).onChange(() => {
-      const red = room.state.redScore;
       const blue = room.state.blueScore;
-      scoreText.text = `Red: ${red} | Blue: ${blue} (40 to win)`;
+      const red = room.state.redScore;
+      scoreText.text = `Blue: ${blue} | Red: ${red} (40 to win)`;
 
       if (red > blue) {
         statusText.text = "Team Red is winning!";
@@ -359,7 +359,10 @@ export function createLobbyScene() {
     // **Round Ended**
     room.onMessage("round-ended", ({ winner, redScore, blueScore }) => {
       k.destroy(timerText);
-      k.add([k.text(`Round Over! Winner: ${winner}\nRed: ${redScore} | Blue: ${blueScore}`, { size: 24 }), k.pos(k.width() / 2, k.height() / 2), k.anchor("center"), k.color(255, 255, 0), k.z(999), k.fixed()]);
+      k.add([k.text(`Round Over! Winner: ${winner}\nBlue: ${blueScore} | Red: ${redScore}`, { size: 24 }), k.pos(k.width() / 2, k.height() / 2), k.anchor("center"), k.color(255, 255, 0), k.z(999), k.fixed()]);
+      setTimeout(() => {
+        k.go("main-menu");
+      }, 5000);
     });
 
     // **Options menu**
