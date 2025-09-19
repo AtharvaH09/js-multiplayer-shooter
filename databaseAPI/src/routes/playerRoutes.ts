@@ -10,44 +10,6 @@ import { authMiddleware } from "../middleware/authMiddleware";
 const router = express.Router()
 
 /**
- * Get all players
- */
-router.get("/", async (req, res) => {
-  try {
-    const players = await Player.find();
-    return res.status(200).json({
-      count: players.length,
-      data: players
-    });
-  } catch (err: any) {
-    console.error(`Error fetching players: ${err.message}`)
-    res.status(500).json({ message: "Server error occurred while fetching players" })
-  }
-});
-
-/**
- * Get a single player by ID
- */
-router.get("/:id", async (req, res) => {
-  try {
-    const player = await Player.findById(req.params.id);
-
-    if (!player) return res.status(404).json({ message: "Player not found" });
-
-    return res.status(200).json(player);
-
-  } catch (err: any) {
-    console.error(`Error fetching player: ${err.message}`)
-
-    if (err.name === 'CastError') {
-      return res.status(400).json({ message: 'Invalid Player ID format' });
-    }
-
-    res.status(500).json({ message: "Server error occurred while fetching player" })
-  }
-});
-
-/**
  * Create a new player
  */
 router.post("/signup", async (req, res) => {
@@ -141,6 +103,44 @@ router.get("/profile", authMiddleware, async (req, res) => {
   } catch (err) {
     console.error(`Profile error`, err);
     res.status(500).json({ message: "Server error occurred while finding a profile in" });
+  }
+});
+
+/**
+ * Get all players
+ */
+router.get("/", async (req, res) => {
+  try {
+    const players = await Player.find();
+    return res.status(200).json({
+      count: players.length,
+      data: players
+    });
+  } catch (err: any) {
+    console.error(`Error fetching players: ${err.message}`)
+    res.status(500).json({ message: "Server error occurred while fetching players" })
+  }
+});
+
+/**
+ * Get a single player by ID
+ */
+router.get("/:id", async (req, res) => {
+  try {
+    const player = await Player.findById(req.params.id);
+
+    if (!player) return res.status(404).json({ message: "Player not found" });
+
+    return res.status(200).json(player);
+
+  } catch (err: any) {
+    console.error(`Error fetching player: ${err.message}`)
+
+    if (err.name === 'CastError') {
+      return res.status(400).json({ message: 'Invalid Player ID format' });
+    }
+
+    res.status(500).json({ message: "Server error occurred while fetching player" })
   }
 });
 

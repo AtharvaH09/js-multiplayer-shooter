@@ -136,13 +136,21 @@
           return;
         }
 
+        // Save token locally
         localStorage.setItem("token", data.token);
+
         status.textContent = "Login successful!";
-        setTimeout(() => window.location.href = GAME_URL, 1000);
+
+        // Redirect with token as query param
+        setTimeout(() => {
+          window.location.href = `${GAME_URL}?token=${data.token}`;
+        }, 1000);
+
       } catch (err) {
         status.textContent = "Network error.";
       }
     };
+
 
     // Show signup form
     document.getElementById("showSignupBtn").onclick = () => {
@@ -189,7 +197,7 @@
     document.getElementById("guestBtn").onclick = () => {
       alert("Playing as Guest. Progress will not be saved.");
       localStorage.removeItem("token");
-      window.location.href = GAME_URL;
+      window.location.href = `${GAME_URL}?guest=true`;
     };
   </script>
 </body>

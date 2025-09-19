@@ -56,23 +56,34 @@ function doRaycast(room: MyRoom, shooterId: string, shooter: Player, dir: { x: n
   let hitPoint = { x: origin.x + dir.x * range, y: origin.y + dir.y * range };
   let hitType: "none" | "player" | "wall" = "none";
 
-  // Check players
+  // Check players with proper AABB raycast
   for (const [id, p] of room.state.players) {
     if (id === shooterId || !p.isAlive) continue;
 
-    const toTarget = { x: p.x - origin.x, y: p.y - origin.y };
-    const proj = toTarget.x * dir.x + toTarget.y * dir.y;
-    if (proj < 0 || proj > range) continue;
+    // Build AABB around player
+    const aabb = {
+      x: p.x,
+      y: p.y,
+      w: 5, // same as player_width
+      h: 5, // same as player_height
+    };
 
-    const perp = Math.abs(toTarget.x * dir.y - toTarget.y * dir.x);
-    if (perp < 20) {
-      const dist = Math.sqrt(toTarget.x ** 2 + toTarget.y ** 2);
-      if (dist < closestDist) {
-        closestDist = dist;
-        closestPlayer = p;
-        hitPoint = { x: origin.x + dir.x * proj, y: origin.y + dir.y * proj };
-        hitType = "player";
-      }
+    const invX = dir.x === 0 ? Number.POSITIVE_INFINITY : 1 / dir.x;
+    const invY = dir.y === 0 ? Number.POSITIVE_INFINITY : 1 / dir.y;
+
+    const tMinX = (aabb.x - origin.x) * invX;
+    const tMaxX = ((aabb.x + aabb.w) - origin.x) * invX;
+    const tMinY = (aabb.y - origin.y) * invY;
+    const tMaxY = ((aabb.y + aabb.h) - origin.y) * invY;
+
+    const tEnter = Math.max(Math.min(tMinX, tMaxX), Math.min(tMinY, tMaxY));
+    const tExit = Math.min(Math.max(tMinX, tMaxX), Math.max(tMinY, tMaxY));
+
+    if (tEnter < tExit && tEnter > 0 && tEnter < closestDist) {
+      closestDist = tEnter;
+      closestPlayer = p;
+      hitPoint = { x: origin.x + dir.x * tEnter, y: origin.y + dir.y * tEnter };
+      hitType = "player";
     }
   }
 
@@ -87,7 +98,9 @@ function doRaycast(room: MyRoom, shooterId: string, shooter: Player, dir: { x: n
     const tMaxY = ((c.y + c.h) - origin.y) * invY;
 
     const tEnter = Math.max(Math.min(tMinX, tMaxX), Math.min(tMinY, tMaxY));
-    if (tEnter > 0 && tEnter < closestDist) {
+    const tExit = Math.min(Math.max(tMinX, tMaxX), Math.max(tMinY, tMaxY));
+
+    if (tEnter < tExit && tEnter > 0 && tEnter < closestDist) {
       closestDist = tEnter;
       hitPoint = { x: origin.x + dir.x * tEnter, y: origin.y + dir.y * tEnter };
       hitType = "wall";

@@ -1,13 +1,18 @@
 import { Room, Client } from "@colyseus/core";
+import jwt from "jsonwebtoken";
 import { MyRoomState, Player, Gun } from "./schema/MyRoomState";
 import { GAME_HEIGHT, GAME_WIDTH } from "../../../globals"
 import fs from "fs";
 import path from "path";
+import axios from "axios";
+import dotenv from "dotenv";
 
 import getCollisionRects from "./logic/Collision";
 import { extractSpawnPoints, getFreeSpawnIndex, releaseSpawnIndex, getSafeSpawnIndex } from "./logic/Spawn";
 import { handleShoot } from "./logic/Shooting";
 import { handleReload } from "./logic/Reloading";
+
+dotenv.config();
 
 // Round duration (in seconds)
 const ROUND_DURATION = 300; // 5 minutes
@@ -113,6 +118,18 @@ export class MyRoom extends Room {
     console.log(client.sessionId, "joined!");
     this._onPlayersChanged();
 
+    const player = new Player();
+    player.sessionId = client.sessionId;
+
+    if (options.playerData) {
+      player.userId = options.playerData.id;
+      player.name = options.playerData.username;
+    } else {
+      player.userId = "";
+      player.name = `Guest-${client.sessionId}`;
+    }
+
+    this.state.players.set(client.sessionId, player);
 
     const redCount = this.teamPlayersCount("red");
     const blueCount = this.teamPlayersCount("blue");
@@ -129,7 +146,6 @@ export class MyRoom extends Room {
 
     this._onPlayersChanged();
 
-    const player = new Player();
     player.team = team;
     player.x = spawn.x;
     player.y = spawn.y;
@@ -269,14 +285,62 @@ export class MyRoom extends Room {
     }, 1000);
   }
 
-  public _endRound() {
+  public async _endRound() {
     this.state.gameState = "ended";
+
     this.broadcast("round-ended", {
       redScore: this.state.redScore,
       blueScore: this.state.blueScore,
       winner: this.state.redScore > this.state.blueScore ? "Red" :
         this.state.blueScore > this.state.redScore ? "Blue" : "Draw"
     });
+
+    const participants: any[] = [];
+    const teamA: (string)[] = [];
+    const teamB: (string)[] = [];
+
+    for (const player of this.state.players.values()) {
+      // Registered player
+      if (player.userId) {
+        participants.push({
+          player: player.userId, // ObjectId
+          kills: player.kills,
+          deaths: player.deaths,
+        });
+
+        if (player.team === "red") teamA.push(player.userId);
+        else teamB.push(player.userId);
+      }
+      // Guest player
+      else {
+        const guestName = `Guest-${player.sessionId}`;
+        participants.push({
+          player: guestName, // plain string
+          kills: player.kills,
+          deaths: player.deaths,
+        });
+
+        if (player.team === "red") teamA.push(guestName);
+        else teamB.push(guestName);
+      }
+    }
+
+    try {
+      await axios.post("http://localhost:5555/matches", {
+        teamA,
+        teamB,
+        scoreA: this.state.redScore,
+        scoreB: this.state.blueScore,
+        participants,
+      }, {
+        headers: {
+          Authorization: `Bearer ${process.env.SERVER_TOKEN}`,
+        },
+      });
+      console.log("Match persisted successfully");
+    } catch (err) {
+      console.error("Failed saving match:", err);
+    }
 
     // cleanup intervals
     if (this.countdownIntervalRef) { clearInterval(this.countdownIntervalRef); this.countdownIntervalRef = undefined; }

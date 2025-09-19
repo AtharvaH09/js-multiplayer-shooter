@@ -97,7 +97,7 @@ export function showGameOptionsOverlay(room: Room<MyRoomState>) {
       if (bluePlayers[i]) {
         const p = bluePlayers[i];
         const row = container.add([
-          k.text(`${p.name ?? `Guest-${p.sessionId}`} | K:${p.kills} D:${p.deaths}`, { size: 16 }),
+          k.text(`${p.name} | K:${p.kills} D:${p.deaths}`, { size: 16 }),
           k.color(255, 255, 255),
           k.pos(-200, y),
         ]);
@@ -107,7 +107,7 @@ export function showGameOptionsOverlay(room: Room<MyRoomState>) {
       if (redPlayers[i]) {
         const p = redPlayers[i];
         const row = container.add([
-          k.text(`${p.name ?? `Guest-${p.sessionId}`} | K:${p.kills} D:${p.deaths}`, { size: 16 }),
+          k.text(`${p.name} | K:${p.kills} D:${p.deaths}`, { size: 16 }),
           k.color(255, 255, 255),
           k.pos(100, y),
         ]);

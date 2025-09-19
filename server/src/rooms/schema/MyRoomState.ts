@@ -12,10 +12,10 @@ export class Gun extends Schema {
 }
 
 export class Player extends Schema {
-	@type('string') public sessionId: string;
-	@type('string') public userId: string;
+	@type('string') public sessionId: string = "";
+	@type('string') public userId: string = "";
 	@type('string') public avatar: string;
-	@type('string') public name: string;
+	@type('string') public name: string = "";
 	@type("number") public x: number = 0;
 	@type("number") public y: number = 0;
 	@type("number") public spawn: number;

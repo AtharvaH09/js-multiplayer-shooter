@@ -9,9 +9,22 @@
  * See: https://docs.colyseus.io/server/api/#constructor-options
  */
 import { listen } from "@colyseus/tools";
+import dotenv from "dotenv";
+import path from "path";
+
+// Load env depending on NODE_ENV
+dotenv.config({
+  path: path.resolve(
+    __dirname,
+    `../.env.${process.env.NODE_ENV || "development"}`
+  ),
+});
 
 // Import Colyseus config
 import app from "./app.config";
+
+// Debug: check SERVER_TOKEN is loaded
+console.log("SERVER_TOKEN:", process.env.SERVER_TOKEN);
 
 // Create and listen on 2567 (or PORT environment variable.)
 listen(app);
