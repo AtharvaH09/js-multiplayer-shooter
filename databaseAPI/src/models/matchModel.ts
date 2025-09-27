@@ -1,14 +1,14 @@
 import mongoose, { Schema, Document } from "mongoose";
 
 interface Participant {
-  player: mongoose.Types.ObjectId;
+  player: mongoose.Types.ObjectId | string;
   kills: number;
   deaths: number;
 }
 
 export interface IMatch extends Document {
-  teamA: mongoose.Types.ObjectId[];
-  teamB: mongoose.Types.ObjectId[];
+  teamA: (mongoose.Types.ObjectId | string)[];
+  teamB: (mongoose.Types.ObjectId | string)[];
   scoreA: number;
   scoreB: number;
   participants: Participant[];
@@ -16,13 +16,13 @@ export interface IMatch extends Document {
 }
 
 const matchSchema = new Schema<IMatch>({
-  teamA: [{ type: Schema.Types.ObjectId, ref: "Player" }],
-  teamB: [{ type: Schema.Types.ObjectId, ref: "Player" }],
+  teamA: [{ type: Schema.Types.Mixed }],
+  teamB: [{ type: Schema.Types.Mixed }],
   scoreA: { type: Number, required: true },
   scoreB: { type: Number, required: true },
   participants: [
     {
-      player: { type: Schema.Types.ObjectId, ref: "Player" },
+      player: { type: Schema.Types.Mixed },
       kills: Number,
       deaths: Number,
     },

@@ -32,6 +32,8 @@ function serverOrPlayerAuth(req: any, res: any, next: any) {
 /**
  * Save a finished match
  */
+// matchRoutes.ts
+
 router.post("/", serverOrPlayerAuth, async (req, res) => {
   try {
     const { teamA, teamB, scoreA, scoreB, participants } = req.body;
@@ -43,19 +45,32 @@ router.post("/", serverOrPlayerAuth, async (req, res) => {
       scoreB,
       participants,
     });
-
     await newMatch.save();
 
-    // Increment matchesPlayed for each participant (skip guests!)
-    const playerIds = participants
-      .map((p: any) => p.player)
-      .filter((id: string) => !id.startsWith("Guest-"));
+    // Update stats for real players
+    for (const p of participants) {
+      if (String(p.player).startsWith("Guest-")) continue; // skip guests
 
-    if (playerIds.length > 0) {
-      await Player.updateMany(
-        { _id: { $in: playerIds } },
-        { $inc: { matchesPlayed: 1 } }
-      );
+      const player = await Player.findById(p.player);
+      if (!player) continue;
+
+      // Always update
+      player.matchesPlayed += 1;
+      player.kills += p.kills;
+      player.deaths += p.deaths;
+
+      // Update win/loss/draw
+      if (teamA.includes(p.player)) {
+        if (scoreA > scoreB) player.wins += 1;
+        else if (scoreA < scoreB) player.losses += 1;
+        else player.draws += 1;
+      } else if (teamB.includes(p.player)) {
+        if (scoreB > scoreA) player.wins += 1;
+        else if (scoreB < scoreA) player.losses += 1;
+        else player.draws += 1;
+      }
+
+      await player.save();
     }
 
     res.status(201).json({
@@ -64,11 +79,10 @@ router.post("/", serverOrPlayerAuth, async (req, res) => {
     });
   } catch (err: any) {
     console.error(`Error saving match: ${err.message}`);
-    res
-      .status(500)
-      .json({ message: "Server error occurred while saving match" });
+    res.status(500).json({ message: "Server error occurred while saving match" });
   }
 });
+
 
 /**
  * Get all matches (could later filter by player ID)
