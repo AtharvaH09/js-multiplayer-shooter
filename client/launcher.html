@@ -4,6 +4,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <link rel="icon" type="image/svg+xml" href="public/logo.svg" />
   <title>VORN! Launcher</title>
   <style>
     body {
@@ -31,7 +32,8 @@
     }
 
     .login,
-    .signup {
+    .signup,
+    .profile {
       display: flex;
       justify-content: center;
       align-items: center;
@@ -59,7 +61,8 @@
       color: white;
     }
 
-    #status {
+    #status,
+    #signupStatus {
       margin-top: 1rem;
       color: #0f0;
       font-size: 0.9rem;
@@ -77,6 +80,7 @@
   </header>
 
   <section class="main">
+    <!-- LOGIN -->
     <section class="login" id="loginSection">
       <fieldset>
         <legend>Login</legend>
@@ -91,6 +95,7 @@
       <div id="status"></div>
     </section>
 
+    <!-- SIGNUP -->
     <section class="signup hidden" id="signupSection">
       <fieldset>
         <legend>Signup</legend>
@@ -102,6 +107,21 @@
       <button id="backToLoginBtn">Back to Login</button>
       <div id="signupStatus"></div>
     </section>
+
+    <!-- PROFILE -->
+    <section class="profile hidden" id="profileSection">
+      <fieldset>
+        <legend>Welcome</legend>
+        <p id="welcomeMsg"></p>
+        <button id="logoutBtn">Logout</button>
+        <button id="playBtn">Play Game</button>
+      </fieldset>
+
+      <fieldset>
+        <legend>Match History</legend>
+        <ul id="matchHistory"></ul>
+      </fieldset>
+    </section>
   </section>
 
   <footer></footer>
@@ -112,8 +132,64 @@
 
     const status = document.getElementById("status");
     const signupStatus = document.getElementById("signupStatus");
+    const profileSection = document.getElementById("profileSection");
+    const loginSection = document.getElementById("loginSection");
+    const signupSection = document.getElementById("signupSection");
+    const welcomeMsg = document.getElementById("welcomeMsg");
+    const matchHistory = document.getElementById("matchHistory");
 
-    // Login
+    // ====== Check if already logged in ======
+    async function checkLogin() {
+      const token = localStorage.getItem("token");
+      if (!token) return;
+
+      try {
+        const res = await fetch(`${API_URL}/players/profile`, {
+          headers: { Authorization: `Bearer ${token}` },
+        });
+
+        if (!res.ok) {
+          localStorage.removeItem("token");
+          return;
+        }
+
+        const player = await res.json();
+
+        // Switch UI
+        loginSection.classList.add("hidden");
+        signupSection.classList.add("hidden");
+        profileSection.classList.remove("hidden");
+
+        welcomeMsg.textContent = `Hello, ${player.username}!`;
+
+        // Fetch match history
+        const matchRes = await fetch(`${API_URL}/matches`);
+        const matches = await matchRes.json();
+
+        const playerMatches = matches.filter(m =>
+          m.participants.some(p =>
+            p.player && (p.player._id === player._id || p.player === player._id)
+          )
+        );
+
+        if (playerMatches.length > 0) {
+          matchHistory.innerHTML = "";
+          playerMatches.forEach((m) => {
+            const li = document.createElement("li");
+            const score = `${m.scoreA} - ${m.scoreB}`;
+            li.textContent = `Match: ${score} (Teams: ${m.teamA.length}v${m.teamB.length})`;
+            matchHistory.appendChild(li);
+          });
+        } else {
+          matchHistory.innerHTML = "<li>No matches yet.</li>";
+        }
+      } catch (err) {
+        console.error("Auth check failed", err);
+        localStorage.removeItem("token");
+      }
+    }
+
+    // ====== Login ======
     document.getElementById("loginBtn").onclick = async () => {
       const username = document.getElementById("username").value.trim();
       const password = document.getElementById("password").value.trim();
@@ -136,35 +212,15 @@
           return;
         }
 
-        // Save token locally
         localStorage.setItem("token", data.token);
-
         status.textContent = "Login successful!";
-
-        // Redirect with token as query param
-        setTimeout(() => {
-          window.location.href = `${GAME_URL}?token=${data.token}`;
-        }, 1000);
-
+        setTimeout(checkLogin, 500);
       } catch (err) {
         status.textContent = "Network error.";
       }
     };
 
-
-    // Show signup form
-    document.getElementById("showSignupBtn").onclick = () => {
-      document.getElementById("loginSection").classList.add("hidden");
-      document.getElementById("signupSection").classList.remove("hidden");
-    };
-
-    // Back to login
-    document.getElementById("backToLoginBtn").onclick = () => {
-      document.getElementById("signupSection").classList.add("hidden");
-      document.getElementById("loginSection").classList.remove("hidden");
-    };
-
-    // Do signup
+    // ====== Signup ======
     document.getElementById("doSignupBtn").onclick = async () => {
       const username = document.getElementById("newUsername").value.trim();
       const password = document.getElementById("newPassword").value.trim();
@@ -193,12 +249,40 @@
       }
     };
 
-    // Guest
+    // ====== UI Switches ======
+    document.getElementById("showSignupBtn").onclick = () => {
+      loginSection.classList.add("hidden");
+      signupSection.classList.remove("hidden");
+    };
+    document.getElementById("backToLoginBtn").onclick = () => {
+      signupSection.classList.add("hidden");
+      loginSection.classList.remove("hidden");
+    };
+
+    // ====== Guest ======
     document.getElementById("guestBtn").onclick = () => {
       alert("Playing as Guest. Progress will not be saved.");
       localStorage.removeItem("token");
       window.location.href = `${GAME_URL}?guest=true`;
     };
+
+    // ====== Logout ======
+    document.getElementById("logoutBtn").onclick = () => {
+      localStorage.removeItem("token");
+      profileSection.classList.add("hidden");
+      loginSection.classList.remove("hidden");
+    };
+
+    // ====== Play Button ======
+    document.getElementById("playBtn").onclick = () => {
+      const token = localStorage.getItem("token");
+      if (token) {
+        window.location.href = `${GAME_URL}?token=${token}`;
+      }
+    };
+
+    // Run on load
+    checkLogin();
   </script>
 </body>
 

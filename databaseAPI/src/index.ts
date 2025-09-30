@@ -2,50 +2,52 @@ import express from "express";
 import mongoose from "mongoose";
 import dotenv from "dotenv";
 import cors from "cors";
-import serverless from "serverless-http";
-
 import playerRoutes from "./routes/playerRoutes";
 import matchRoutes from "./routes/matchRoutes";
 import leaderboardRoutes from "./routes/leaderboardRoutes";
 
+// Load environment variables
 dotenv.config();
 
 const app = express();
-const MONGO_URL = process.env.MONGO_URL;
+const PORT = process.env.PORT || 5555;
+const MONGO_URL = process.env.MONGO_URL as string;
 
 /**
  * Middlewares
  */
 app.use(express.json());
-app.use(cors({
-  origin: [
-    "http://localhost:3000",
-    "http://127.0.0.1:3000",
-    "http://localhost:5173",
-    "http://127.0.0.1:5173",
-  ],
-  credentials: true
-}));
+app.use(
+  cors({
+    origin: [
+      "http://localhost:3000", 
+      "http://127.0.0.1:3000", 
+      "http://localhost:5173", 
+      "http://127.0.0.1:5173", 
+    ],
+    credentials: true,
+  })
+);
 
 /**
  * Routes
  */
-app.use("/api/players", playerRoutes);
-app.use("/api/matches", matchRoutes);
-app.use("/api/leaderboard", leaderboardRoutes);
+app.use("/players", playerRoutes);
+app.use("/matches", matchRoutes);
+app.use("/leaderboard", leaderboardRoutes);
 
-app.get("/api", (req, res) => {
+app.get('/', (req, res) => {
   res.send("Hello World");
 });
 
-/**
- * Database connection (runs once per cold start)
- */
-mongoose.connect(MONGO_URL!)
-  .then(() => console.log("Successfully connected to the Database"))
-  .catch(err => console.error(`DB Error: ${err.message}`));
-
-/**
- * Export serverless handler
- */
-export const handler = serverless(app);
+// Connect to the database and start the server
+mongoose.connect(MONGO_URL)
+  .then(() => {
+    console.log("Successfully connected to the Database");
+    app.listen(PORT, () => {
+      console.log(`App listening on PORT: ${PORT}`);
+    });
+  })
+  .catch(err => {
+    console.error(`Error: ${err.message}`);
+  });
