@@ -2,8 +2,8 @@
 <html lang="en">
 
 <head>
-  <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <link rel="icon" type="image/svg+xml" href="public/logo.svg" />
   <title>VORN! Launcher</title>
   <style>
@@ -27,26 +27,30 @@
 
     .main {
       display: flex;
-      justify-content: center;
+      flex-direction: column;
       align-items: center;
+      justify-content: center;
     }
 
     .login,
     .signup,
-    .profile {
+    .dashboard {
       display: flex;
-      justify-content: center;
-      align-items: center;
       flex-direction: column;
+      align-items: center;
+      justify-content: center;
       gap: 0.5rem;
+      text-align: center;
+    }
+
+    #loginBtn {
+      width: 100%;
     }
 
     fieldset {
       padding: 2rem;
       margin: 1rem;
       display: flex;
-      justify-content: center;
-      align-items: center;
       flex-direction: column;
       gap: 0.5rem;
     }
@@ -71,16 +75,38 @@
     .hidden {
       display: none;
     }
+
+    table {
+      border-collapse: collapse;
+      width: 80%;
+      margin: 1rem auto;
+    }
+
+    th,
+    td {
+      border: 1px solid #555;
+      padding: 0.5rem;
+      text-align: center;
+    }
+
+    th {
+      background-color: #222;
+    }
+
+    .leaderboard-section {
+      text-align: center;
+      margin-top: 2rem;
+    }
   </style>
 </head>
 
 <body>
   <header>
-    <img src="public/title.svg" class="title" alt="game title">
+    <img src="public/title.svg" class="title" alt="game title" />
   </header>
 
   <section class="main">
-    <!-- LOGIN -->
+    <!-- LOGIN SECTION -->
     <section class="login" id="loginSection">
       <fieldset>
         <legend>Login</legend>
@@ -95,7 +121,7 @@
       <div id="status"></div>
     </section>
 
-    <!-- SIGNUP -->
+    <!-- SIGNUP SECTION -->
     <section class="signup hidden" id="signupSection">
       <fieldset>
         <legend>Signup</legend>
@@ -108,19 +134,16 @@
       <div id="signupStatus"></div>
     </section>
 
-    <!-- PROFILE -->
-    <section class="profile hidden" id="profileSection">
-      <fieldset>
-        <legend>Welcome</legend>
-        <p id="welcomeMsg"></p>
-        <button id="logoutBtn">Logout</button>
-        <button id="playBtn">Play Game</button>
-      </fieldset>
+    <!-- DASHBOARD SECTION -->
+    <section class="dashboard hidden" id="dashboardSection">
+      <h2 id="welcomeMsg"></h2>
+      <button id="playBtn">Play Game</button>
+      <button id="logoutBtn">Logout</button>
 
-      <fieldset>
-        <legend>Match History</legend>
-        <ul id="matchHistory"></ul>
-      </fieldset>
+      <div class="leaderboard-section">
+        <h3>Leaderboards</h3>
+        <div id="leaderboardContainer"></div>
+      </div>
     </section>
   </section>
 
@@ -132,64 +155,53 @@
 
     const status = document.getElementById("status");
     const signupStatus = document.getElementById("signupStatus");
-    const profileSection = document.getElementById("profileSection");
     const loginSection = document.getElementById("loginSection");
     const signupSection = document.getElementById("signupSection");
+    const dashboardSection = document.getElementById("dashboardSection");
     const welcomeMsg = document.getElementById("welcomeMsg");
-    const matchHistory = document.getElementById("matchHistory");
+    const leaderboardContainer = document.getElementById("leaderboardContainer");
 
-    // ====== Check if already logged in ======
-    async function checkLogin() {
+    // Helper to switch sections
+    function showSection(section) {
+      [loginSection, signupSection, dashboardSection].forEach((s) => s.classList.add("hidden"));
+      section.classList.remove("hidden");
+    }
+
+    // Check authentication
+    async function checkAuth() {
       const token = localStorage.getItem("token");
-      if (!token) return;
+      if (!token) {
+        showSection(loginSection);
+        await loadGuestLeaderboard();
+        return;
+      }
 
       try {
         const res = await fetch(`${API_URL}/players/profile`, {
           headers: { Authorization: `Bearer ${token}` },
         });
-
-        if (!res.ok) {
-          localStorage.removeItem("token");
-          return;
-        }
+        if (!res.ok) throw new Error("Not authenticated");
 
         const player = await res.json();
+        showSection(dashboardSection);
+        welcomeMsg.textContent = `Welcome back, ${player.username}!`;
+        await loadFullLeaderboard();
 
-        // Switch UI
-        loginSection.classList.add("hidden");
-        signupSection.classList.add("hidden");
-        profileSection.classList.remove("hidden");
-
-        welcomeMsg.textContent = `Hello, ${player.username}!`;
-
-        // Fetch match history
-        const matchRes = await fetch(`${API_URL}/matches`);
-        const matches = await matchRes.json();
-
-        const playerMatches = matches.filter(m =>
-          m.participants.some(p =>
-            p.player && (p.player._id === player._id || p.player === player._id)
-          )
-        );
-
-        if (playerMatches.length > 0) {
-          matchHistory.innerHTML = "";
-          playerMatches.forEach((m) => {
-            const li = document.createElement("li");
-            const score = `${m.scoreA} - ${m.scoreB}`;
-            li.textContent = `Match: ${score} (Teams: ${m.teamA.length}v${m.teamB.length})`;
-            matchHistory.appendChild(li);
-          });
-        } else {
-          matchHistory.innerHTML = "<li>No matches yet.</li>";
-        }
-      } catch (err) {
-        console.error("Auth check failed", err);
+        document.getElementById("logoutBtn").onclick = () => {
+          localStorage.removeItem("token");
+          location.reload();
+        };
+        document.getElementById("playBtn").onclick = () => {
+          window.location.href = `${GAME_URL}?token=${token}`;
+        };
+      } catch {
         localStorage.removeItem("token");
+        showSection(loginSection);
+        await loadGuestLeaderboard();
       }
     }
 
-    // ====== Login ======
+    // LOGIN
     document.getElementById("loginBtn").onclick = async () => {
       const username = document.getElementById("username").value.trim();
       const password = document.getElementById("password").value.trim();
@@ -214,13 +226,16 @@
 
         localStorage.setItem("token", data.token);
         status.textContent = "Login successful!";
-        setTimeout(checkLogin, 500);
-      } catch (err) {
+        setTimeout(() => location.reload(), 800);
+      } catch {
         status.textContent = "Network error.";
       }
     };
 
-    // ====== Signup ======
+    // SIGNUP
+    document.getElementById("showSignupBtn").onclick = () => showSection(signupSection);
+    document.getElementById("backToLoginBtn").onclick = () => showSection(loginSection);
+
     document.getElementById("doSignupBtn").onclick = async () => {
       const username = document.getElementById("newUsername").value.trim();
       const password = document.getElementById("newPassword").value.trim();
@@ -244,46 +259,102 @@
         }
 
         signupStatus.textContent = "Signup successful! Please login.";
-      } catch (err) {
+      } catch {
         signupStatus.textContent = "Network error.";
       }
     };
 
-    // ====== UI Switches ======
-    document.getElementById("showSignupBtn").onclick = () => {
-      loginSection.classList.add("hidden");
-      signupSection.classList.remove("hidden");
-    };
-    document.getElementById("backToLoginBtn").onclick = () => {
-      signupSection.classList.add("hidden");
-      loginSection.classList.remove("hidden");
-    };
-
-    // ====== Guest ======
-    document.getElementById("guestBtn").onclick = () => {
+    // GUEST MODE
+    document.getElementById("guestBtn").onclick = async () => {
       alert("Playing as Guest. Progress will not be saved.");
       localStorage.removeItem("token");
-      window.location.href = `${GAME_URL}?guest=true`;
+      showSection(dashboardSection);
+      welcomeMsg.textContent = "Welcome, Guest Player!";
+      await loadGuestLeaderboard();
+
+      document.getElementById("logoutBtn").onclick = () => location.reload();
+      document.getElementById("playBtn").onclick = () => {
+        window.location.href = `${GAME_URL}?guest=true`;
+      };
     };
 
-    // ====== Logout ======
-    document.getElementById("logoutBtn").onclick = () => {
-      localStorage.removeItem("token");
-      profileSection.classList.add("hidden");
-      loginSection.classList.remove("hidden");
-    };
+    // Load leaderboards for logged-in users
+    async function loadFullLeaderboard() {
+      leaderboardContainer.innerHTML = "<p>Loading leaderboards...</p>";
 
-    // ====== Play Button ======
-    document.getElementById("playBtn").onclick = () => {
-      const token = localStorage.getItem("token");
-      if (token) {
-        window.location.href = `${GAME_URL}?token=${token}`;
+      try {
+        const [matchesRes, killsRes, kdRes] = await Promise.all([
+          fetch(`${API_URL}/leaderboard/matches`),
+          fetch(`${API_URL}/leaderboard/kills`),
+          fetch(`${API_URL}/leaderboard/kd`),
+        ]);
+
+        const matchesData = await matchesRes.json();
+        const killsData = await killsRes.json();
+        const kdData = await kdRes.json();
+
+        leaderboardContainer.innerHTML = `
+      <h4>Most Matches Played</h4>
+      ${makeTable(matchesData, "matchesPlayed")}
+      <h4>Top Kills</h4>
+      ${makeTable(killsData, "kills")}
+      <h4>Top K/D Ratio</h4>
+      ${makeTable(kdData, "kdRatio")}
+    `;
+      } catch {
+        leaderboardContainer.innerHTML = "<p>Failed to load leaderboards.</p>";
       }
-    };
+    }
+
+    // Guest leaderboard
+    async function loadGuestLeaderboard() {
+      leaderboardContainer.innerHTML = `
+    <p>Sign in to appear on the global leaderboards!</p>
+    <button id="refreshLeaderboards">View Public Leaderboards</button>
+  `;
+
+      document.getElementById("refreshLeaderboards").onclick = async () => {
+        try {
+          const [matchesRes, killsRes, kdRes] = await Promise.all([
+            fetch(`${API_URL}/leaderboard/matches`),
+            fetch(`${API_URL}/leaderboard/kills`),
+            fetch(`${API_URL}/leaderboard/kd`),
+          ]);
+
+          const matchesData = await matchesRes.json();
+          const killsData = await killsRes.json();
+          const kdData = await kdRes.json();
+
+          leaderboardContainer.innerHTML = `
+        <h4>Most Matches Played</h4>
+        ${makeTable(matchesData, "matchesPlayed")}
+        <h4>Top Kills</h4>
+        ${makeTable(killsData, "kills")}
+        <h4>Top K/D Ratio</h4>
+        ${makeTable(kdData, "kdRatio")}
+        <p><i>Login to join the leaderboard!</i></p>
+      `;
+        } catch {
+          leaderboardContainer.innerHTML = "<p>Failed to load leaderboards.</p>";
+        }
+      };
+    }
+
+    // Helper to render table
+    function makeTable(list, fieldName) {
+      if (!list || !list.length) return "<p>No data yet.</p>";
+      let rows = list
+        .map(
+          (p, i) => `<tr><td>${i + 1}</td><td>${p.username || "Unknown"}</td><td>${p[fieldName] ?? 0}</td></tr>`
+        )
+        .join("");
+      return `<table><tr><th>#</th><th>Player</th><th>Stat</th></tr>${rows}</table>`;
+    }
 
     // Run on load
-    checkLogin();
+    checkAuth();
   </script>
+
 </body>
 
 </html>

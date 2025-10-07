@@ -360,6 +360,7 @@ export function createLobbyScene() {
     room.onMessage("round-ended", ({ winner, redScore, blueScore }) => {
       k.destroy(timerText);
       k.add([k.text(`Round Over! Winner: ${winner}\nBlue: ${blueScore} | Red: ${redScore}`, { size: 24 }), k.pos(k.width() / 2, k.height() / 2), k.anchor("center"), k.color(255, 255, 0), k.z(999), k.fixed()]);
+      room.leave()  // Gracefully leave the room
       setTimeout(() => {
         k.go("main-menu");
       }, 5000);

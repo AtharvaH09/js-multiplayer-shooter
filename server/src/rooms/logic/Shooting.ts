@@ -104,11 +104,12 @@ function doRaycast(room: MyRoom, shooterId: string, shooter: Player, dir: { x: n
       closestDist = tEnter;
       hitPoint = { x: origin.x + dir.x * tEnter, y: origin.y + dir.y * tEnter };
       hitType = "wall";
+      closestPlayer = null;
     }
   }
 
   // Apply damage
-  if (closestPlayer && closestPlayer.isAlive && !closestPlayer.isInvincible) {
+  if (hitType === "player" && closestPlayer && closestPlayer.isAlive && !closestPlayer.isInvincible) {
     closestPlayer.health -= 20;
     if (closestPlayer.health <= 0) {
       closestPlayer.isAlive = false;
